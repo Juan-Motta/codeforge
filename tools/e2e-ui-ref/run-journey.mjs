@@ -3,7 +3,7 @@
 // codeforge verify-e2e — UI journey reference harness (normative; Plan B embeds this region
 // verbatim). Adapt ONLY the marked JOURNEY block; the harness around it carries the ship-gate
 // guarantees the framework depends on — do not modify it.
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, resolve, sep, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -115,6 +115,12 @@ if (isMain) {
     // watchdog-clear happen in the `finally` (so a hanging capture is ALSO watchdog-guarded).
     try { if (activePage) await activePage.screenshot({ path: join(ARTIFACT_DIR, 'failure.png') }); } catch {}
     try { if (activeContext) await activeContext.tracing.stop({ path: join(ARTIFACT_DIR, 'trace.zip') }); } catch {}
+    // #2 provenance: record WHICH context (by index into `contexts`) produced the trace above, so a
+    // multi-context run (e.g. fail-newcontext) can be proven to have captured from the active
+    // (possibly 2nd) context rather than merely asserting "some trace.zip exists".
+    try {
+      writeFileSync(join(ARTIFACT_DIR, 'trace-context-index.json'), JSON.stringify({ activeContextIndex: contexts.indexOf(activeContext) }));
+    } catch {}
     // #6: classification is PHASE-based, not error-name-based. Only assertion phases are FAIL_BUG.
     const cls = (phase === 'journey' || phase === 'persist') ? 'FAIL_BUG' : 'FAIL_INFRA';
     exitInfo = { cls, code: 1, diag: String(err?.stack ?? err) };
@@ -141,7 +147,27 @@ if (isMain) {
     const target = MODE === 'expect-miss' ? 'never-present-value' : MODE === 'assert-fail' ? 'WRONG' : 'hello';
     await expectCfg(activePage.getByTestId('saved')).toHaveText(target);
 
-    phase = 'persist';                       // filled in Task 6
+    // #6 sub-phases: navigation/context ops during persist are INFRA (phase='nav'); only the
+    // re-verify ASSERTION is a product check (phase='persist' → FAIL_BUG). A newContext()/goto()
+    // failure here must classify FAIL_INFRA, not FAIL_BUG.
+    if (PERSIST === 'client') {
+      phase = 'nav';
+      await activePage.reload();
+      phase = 'persist';
+      await expectCfg(activePage.getByTestId('saved')).toHaveText('hello'); // localStorage survives reload
+    } else {
+      phase = 'nav';
+      const fresh = await browser.newContext();          // #2: fresh context becomes active for capture
+      contexts.push(fresh);
+      await fresh.tracing.start({ screenshots: true, snapshots: true });
+      activeContext = fresh;
+      activePage = await fresh.newPage();
+      activePage.setDefaultTimeout(ACTION_MS);
+      await activePage.goto(APP_URL);
+      phase = 'persist';
+      const want = MODE === 'fail-newcontext' ? 'hello' : '';  // fresh ctx has no localStorage → empty
+      await expectCfg(activePage.getByTestId('saved')).toHaveText(want);
+    }
     // #5: READY marker — journey has launched+navigated+asserted and is about to enter teardown.
     // Written synchronously so the hang-cleanup test can prove the watchdog fired DURING a hanging
     // teardown, not during cold Chromium launch (which would be a false pass for guarantee #5).

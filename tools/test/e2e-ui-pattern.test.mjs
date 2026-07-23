@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -115,6 +115,26 @@ test('in-journey assertion failure → FAIL_BUG + artifacts + primary error', { 
   assert.match(r.stdout, /toHaveText|expect|Timeout/i);
   assert.ok(existsSync(join(r.artifactDir, 'failure.png')), 'screenshot');
   assert.ok(existsSync(join(r.artifactDir, 'trace.zip')), 'trace');
+});
+test('client persist → reload shows the note, exit 0 PASS', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_MODE: 'success', E2E_PERSIST: 'client' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
+});
+test('fresh-context persist → isolated (empty), exit 0 PASS', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_MODE: 'success', E2E_PERSIST: 'newcontext' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
+});
+test('failure inside the fresh context → FAIL_BUG, trace from the 2nd context', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_MODE: 'fail-newcontext', E2E_PERSIST: 'newcontext' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_BUG\s*$/);
+  assert.ok(existsSync(join(r.artifactDir, 'trace.zip')), 'trace from active (2nd) context');
+  const sidecarPath = join(r.artifactDir, 'trace-context-index.json');
+  assert.ok(existsSync(sidecarPath), 'provenance sidecar written');
+  const sidecar = JSON.parse(readFileSync(sidecarPath, 'utf8'));
+  assert.equal(sidecar.activeContextIndex, 1, 'trace captured from the SECOND context (index 1), not the first');
 });
 test('navigation failure (bad URL) → FAIL_INFRA, not FAIL_BUG', { skip: skipReason() }, () => {
   const r = runRef({ E2E_APP_URL: 'http://127.0.0.1:9/nope', E2E_MODE: 'success', E2E_ACTION_MS: '2000' });
