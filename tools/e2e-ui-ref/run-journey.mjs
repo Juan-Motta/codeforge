@@ -108,8 +108,15 @@ if (isMain) {
 
   let watchdog;                             // armed in Task 5 — no-op until then
   let exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: 'unknown' };
-  // TEMPORARY placeholder — Task 4 replaces this with real failure classification.
-  async function onFailure(err) { exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: String(err) }; }
+  async function onFailure(err) {
+    // #3: preserve the PRIMARY error; best-effort capture from the ACTIVE context/page. Teardown +
+    // watchdog-clear happen in the `finally` (so a hanging capture is ALSO watchdog-guarded).
+    try { if (activePage) await activePage.screenshot({ path: join(ARTIFACT_DIR, 'failure.png') }); } catch {}
+    try { if (activeContext) await activeContext.tracing.stop({ path: join(ARTIFACT_DIR, 'trace.zip') }); } catch {}
+    // #6: classification is PHASE-based, not error-name-based. Only assertion phases are FAIL_BUG.
+    const cls = (phase === 'journey' || phase === 'persist') ? 'FAIL_BUG' : 'FAIL_INFRA';
+    exitInfo = { cls, code: 1, diag: String(err?.stack ?? err) };
+  }
 
   let phase = 'launch';                    // #6: phase drives classification
   let browser, activeContext, activePage;
@@ -130,7 +137,7 @@ if (isMain) {
     if (MODE === 'hang-cleanup') { /* handled in Task 5 */ }
     await activePage.getByTestId('note-input').fill('hello');
     await activePage.getByTestId('save').click();
-    const target = MODE === 'expect-miss' ? 'never-present-value' : 'hello';
+    const target = MODE === 'expect-miss' ? 'never-present-value' : MODE === 'assert-fail' ? 'WRONG' : 'hello';
     await expectCfg(activePage.getByTestId('saved')).toHaveText(target);
 
     phase = 'persist';                       // filled in Task 6

@@ -101,16 +101,25 @@ test('success mode → exit 0, CLASSIFICATION: PASS', { skip: skipReason() }, ()
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
 });
-// TODO(task-4): remove { todo: true } once onFailure() classifies real journey errors as
-// FAIL_BUG — right now the placeholder onFailure only produces FAIL_INFRA, so this assertion
-// would fail until Task 4 lands. Kept green (not skipped) so the RED evidence is visible in
-// `node --test` output while the suite still exits 0.
-test('tiny E2E_EXPECT_MS on a never-matching assertion fails fast as FAIL_BUG', { skip: skipReason(), todo: true }, () => {
+test('tiny E2E_EXPECT_MS on a never-matching assertion fails fast as FAIL_BUG', { skip: skipReason() }, () => {
   const t0 = Date.now();
   const r = runRef({ E2E_MODE: 'expect-miss', E2E_EXPECT_MS: '250', E2E_WATCHDOG_MS: '30000' });
   assert.notEqual(r.status, 0);
   assert.match(r.stdout, /CLASSIFICATION: FAIL_BUG\s*$/);
   assert.ok(Date.now() - t0 < 15000, 'expect timeout, not watchdog, ended the run');
+});
+test('in-journey assertion failure → FAIL_BUG + artifacts + primary error', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_MODE: 'assert-fail', E2E_PERSIST: 'client' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_BUG\s*$/);
+  assert.match(r.stdout, /toHaveText|expect|Timeout/i);
+  assert.ok(existsSync(join(r.artifactDir, 'failure.png')), 'screenshot');
+  assert.ok(existsSync(join(r.artifactDir, 'trace.zip')), 'trace');
+});
+test('navigation failure (bad URL) → FAIL_INFRA, not FAIL_BUG', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_APP_URL: 'http://127.0.0.1:9/nope', E2E_MODE: 'success', E2E_ACTION_MS: '2000' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // #6: nav phase → INFRA even on TimeoutError
 });
 
 test('meetsVersionFloor: pure version-floor unit test (no browser required)', () => {
