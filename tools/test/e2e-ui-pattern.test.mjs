@@ -122,6 +122,20 @@ test('navigation failure (bad URL) → FAIL_INFRA, not FAIL_BUG', { skip: skipRe
   assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // #6: nav phase → INFRA even on TimeoutError
 });
 
+test('hanging cleanup → watchdog forces exit within kill deadline', { skip: skipReason() }, () => {
+  const t0 = Date.now();
+  const r = runRef({ E2E_MODE: 'hang-cleanup', E2E_WATCHDOG_MS: '400' });
+  const ms = Date.now() - t0;
+  assert.notEqual(r.status, 0, 'must not exit 0');
+  const readyIdx = r.stdout.indexOf('READY');
+  const watchdogIdx = r.stdout.indexOf('watchdog: overall deadline exceeded');
+  assert.ok(readyIdx !== -1, 'expected READY marker in stdout');
+  assert.match(r.stdout, /watchdog: overall deadline exceeded/);
+  assert.ok(watchdogIdx !== -1 && readyIdx < watchdogIdx, 'READY must precede the watchdog line (proves the watchdog fired during cleanup, not cold launch)');
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // classification is still the last line
+  assert.ok(ms < 20000, `watchdog should fire quickly, took ${ms}ms`);  // < the 60s parent timeout
+});
+
 test('meetsVersionFloor: pure version-floor unit test (no browser required)', () => {
   assert.equal(meetsVersionFloor('1.59.0'), true);
   assert.equal(meetsVersionFloor('1.58.9'), false);

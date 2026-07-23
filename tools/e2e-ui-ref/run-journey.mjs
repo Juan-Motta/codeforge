@@ -106,7 +106,9 @@ if (isMain) {
   const ACTION_MS = Number(process.env.E2E_ACTION_MS ?? 5000);
   const expectCfg = expect.configure({ timeout: EXPECT_MS });   // #4: bounds web-first assertions
 
-  let watchdog;                             // armed in Task 5 — no-op until then
+  // #5: hard watchdog — fires even if cleanup hangs (it is NEVER cleared before teardown; only a
+  // fully-successful run clears it right before done('PASS')). Diagnostic THEN classification (last).
+  let watchdog = setTimeout(() => { done('FAIL_INFRA', 3, 'watchdog: overall deadline exceeded'); }, WATCHDOG_MS);
   let exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: 'unknown' };
   async function onFailure(err) {
     // #3: preserve the PRIMARY error; best-effort capture from the ACTIVE context/page. Teardown +
@@ -134,13 +136,16 @@ if (isMain) {
     await activePage.goto(APP_URL);
 
     phase = 'journey';
-    if (MODE === 'hang-cleanup') { /* handled in Task 5 */ }
     await activePage.getByTestId('note-input').fill('hello');
     await activePage.getByTestId('save').click();
     const target = MODE === 'expect-miss' ? 'never-present-value' : MODE === 'assert-fail' ? 'WRONG' : 'hello';
     await expectCfg(activePage.getByTestId('saved')).toHaveText(target);
 
     phase = 'persist';                       // filled in Task 6
+    // #5: READY marker — journey has launched+navigated+asserted and is about to enter teardown.
+    // Written synchronously so the hang-cleanup test can prove the watchdog fired DURING a hanging
+    // teardown, not during cold Chromium launch (which would be a false pass for guarantee #5).
+    writeSync(1, 'READY\n');
     exitInfo = { cls: 'PASS', code: 0 };
   } catch (err) {
     await onFailure(err);                    // sets exitInfo + captures (implemented in Task 4)
@@ -148,11 +153,12 @@ if (isMain) {
     // #2: real finally closes only what was created. #5: clear the watchdog ONLY after teardown
     // returns — so a hanging teardown lets the watchdog fire (uncancellable by cleanup).
     await teardownAll();
-    clearTimeout(watchdog);                  // set in Task 5; no-op until then
+    clearTimeout(watchdog);                  // reached only if teardownAll() actually returns
   }
   done(exitInfo.cls, exitInfo.code, exitInfo.diag);
 
   async function teardownAll() {             // #2: close ALL contexts
+    if (MODE === 'hang-cleanup') { await new Promise(() => {}); }  // never resolves → watchdog must fire
     for (const c of contexts) { try { await c.tracing.stop().catch(() => {}); await c.close(); } catch {} }
     try { await browser?.close(); } catch {}
   }
