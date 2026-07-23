@@ -3,7 +3,7 @@
 // codeforge verify-e2e — UI journey reference harness (normative; Plan B embeds this region
 // verbatim). Adapt ONLY the marked JOURNEY block; the harness around it carries the ship-gate
 // guarantees the framework depends on — do not modify it.
-import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, resolve, sep, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -33,7 +33,12 @@ export function meetsVersionFloor(v, floor = [1, 59, 0]) {
 // Import-safety guard: everything below is side-effecting (reads env, may process.exit). Only run
 // it when this file is the executed entry script (`node run-journey.mjs`, or the test harness's
 // spawnSync(REF)) — NOT when another module imports it (e.g. to unit-test meetsVersionFloor above,
-// which must stay import-safe with zero side effects).
+// which must stay import-safe with zero side effects). This is not a defensive no-op: the harness
+// is ALWAYS executed as the entry script in real use (Plan B embeds this e2e-ui-ref region
+// verbatim as TEXT into the generated harness, never via `import`), so the preamble runs for every
+// real invocation. It is intentionally skipped only when this module is imported for unit-testing
+// meetsVersionFloor — no else-branch is added here, since emitting output on import would fire
+// during that unit test too.
 const isMain = Boolean(process.argv[1]) && (() => {
   try { return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); }
   catch { return false; }
@@ -56,16 +61,24 @@ if (isMain) {
   // exports subpath). ALL of this is inside one guard so any failure classifies FAIL_INFRA.
   let chromium, expect;
   try {
-    // Node's require.resolve ancestor-climbs node_modules all the way to the filesystem root
-    // regardless of any `paths` override — so resolvability alone can't tell "this app owns the
-    // dependency" from "some unrelated ancestor happens to have it hoisted/installed". Require an
-    // explicit declaration in the App root's OWN package.json first; only THEN resolve (which may
-    // legitimately climb to a hoisted monorepo-workspace-root node_modules — that's expected).
-    const appPkgJson = JSON.parse(readFileSync(appPkg, 'utf8'));
-    const declared = { ...appPkgJson.dependencies, ...appPkgJson.devDependencies, ...appPkgJson.peerDependencies };
-    if (!declared['@playwright/test']) throw new Error('@playwright/test is not declared in the App root package.json — not resolvable as an owned dependency');
+    // Authoritative go/no-go is resolvability, not manifest declaration: require.resolve
+    // ancestor-climbs node_modules (e.g. to a hoisted monorepo-workspace-root node_modules under
+    // pnpm/npm workspaces), and a hoisted-but-resolvable dependency MUST pass — a direct manifest
+    // entry in the App root's own package.json is neither required nor sufficient. If resolution
+    // fails, enrich the error with an advisory manifest scan (never gate on it).
     const requireFromApp = createRequire(appPkg);
-    const resolved = requireFromApp.resolve('@playwright/test');
+    let resolved;
+    try {
+      resolved = requireFromApp.resolve('@playwright/test');
+    } catch (resolveErr) {
+      let advisory = '';
+      try {
+        const appPkgJson = JSON.parse(readFileSync(appPkg, 'utf8'));
+        const declared = { ...appPkgJson.dependencies, ...appPkgJson.devDependencies, ...appPkgJson.peerDependencies };
+        if (!declared['@playwright/test']) advisory = ' (also not declared in the App root package.json)';
+      } catch { /* advisory text only — never gate on manifest read failures */ }
+      throw new Error(`@playwright/test is not resolvable from the App root${advisory}: ${resolveErr.message}`);
+    }
     const mod = await import(pathToFileURL(resolved).href);
     ({ chromium, expect } = mod.default ?? mod);       // CJS entry may not surface named exports via import()
     if (!chromium || !expect) throw new Error('@playwright/test did not expose chromium/expect');

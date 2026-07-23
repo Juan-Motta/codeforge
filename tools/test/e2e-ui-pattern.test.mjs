@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -53,20 +53,12 @@ test('fixture loads and ariaSnapshot(ai) works headless', { skip: skipReason() }
   } finally { await browser.close(); }
 });
 
-// A dir that HAS a package.json but does NOT resolve @playwright/test → exercises the resolve
-// guard (not the earlier "no package.json" guard). Under a gitignored path inside the repo.
-function appRootWithoutPlaywright() {
-  const dir = gitignoredArtifactDir(); // reuse the .workflow/e2e-run tmp helper
-  writeFileSync(join(dir, 'package.json'), JSON.stringify({ name: 'no-pw', version: '1.0.0' }));
-  return dir;
-}
-test('app root WITH package.json but no @playwright/test → FAIL_INFRA (resolve guard)', { skip: skipReason() }, () => {
-  const rel = appRootWithoutPlaywright().slice(REPO.length + 1); // repo-relative
-  const r = runRef({ E2E_APP_ROOT: rel });
-  assert.notEqual(r.status, 0);
-  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
-  assert.match(r.stdout, /not resolvable|@playwright\/test/i);
-});
+// NOTE: an in-repo "app root WITH package.json but no @playwright/test declared" case is NOT
+// testable here — Node's require.resolve ancestor-climbs to THIS repo's own node_modules, so any
+// containment-required (repo-relative) App root resolves @playwright/test regardless of its own
+// manifest. That is intended behavior per the binding constraint (hoisted-but-resolvable MUST
+// pass), not a gap: the achievable FAIL_INFRA cases below cover every guard that fires BEFORE
+// resolution is even attempted.
 test('missing E2E_APP_ROOT → FAIL_INFRA', { skip: skipReason() }, () => {
   const r = runRef({ E2E_APP_ROOT: '' });
   assert.notEqual(r.status, 0);
@@ -81,6 +73,21 @@ test('absolute E2E_APP_ROOT → FAIL_INFRA (must be repo-relative)', { skip: ski
 test('App root escaping the repo → FAIL_INFRA', { skip: skipReason() }, () => {
   const r = runRef({ E2E_APP_ROOT: '../..' });
   assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
+});
+test('non-existent App root (realpath fails) → FAIL_INFRA', { skip: skipReason() }, () => {
+  const rel = join('.workflow', 'e2e-run', 'does-not-exist-' + Date.now());
+  const r = runRef({ E2E_APP_ROOT: rel });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /does not exist/i);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
+});
+test('App root dir with NO package.json → FAIL_INFRA', { skip: skipReason() }, () => {
+  const dir = gitignoredArtifactDir(); // empty dir, no package.json written
+  const rel = dir.slice(REPO.length + 1); // repo-relative
+  const r = runRef({ E2E_APP_ROOT: rel });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /No package\.json/i);
   assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
 });
 test('resolution success (repo root) → CLASSIFICATION: PASS', { skip: skipReason() }, () => {
