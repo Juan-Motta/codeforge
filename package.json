@@ -44,6 +44,7 @@
     "workflow"
   ],
   "devDependencies": {
+    "@playwright/test": "^1.61.1",
     "ink-testing-library": "^4.0.0",
     "jimp": "^1.6.1"
   }

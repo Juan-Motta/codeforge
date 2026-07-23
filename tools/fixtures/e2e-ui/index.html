@@ -1,0 +1,19 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>e2e-ui fixture</title>
+<h1 data-testid="title">E2E UI Fixture</h1>
+<input data-testid="note-input" aria-label="Note">
+<button data-testid="save">Save</button>
+<p data-testid="saved"></p>
+<script>
+  const saved = document.querySelector('[data-testid="saved"]');
+  const input = document.querySelector('[data-testid="note-input"]');
+  // localStorage is per browser-context in Playwright: it survives a reload of the same
+  // context, and is ABSENT in a fresh context (isolation). Restore on load so a reload shows it.
+  const ls = localStorage.getItem('note');
+  if (ls) saved.textContent = ls;
+  document.querySelector('[data-testid="save"]').addEventListener('click', () => {
+    localStorage.setItem('note', input.value);
+    saved.textContent = input.value;
+  });
+</script>
