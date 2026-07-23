@@ -98,5 +98,56 @@ if (isMain) {
   const APP_URL = process.env.E2E_APP_URL || done('FAIL_INFRA', 1, 'E2E_APP_URL required');
   const MODE = process.env.E2E_MODE ?? 'success';
   if (MODE === 'resolve-only') done('PASS', 0);  // used by the resolution acceptance test
+
+  const ARTIFACT_DIR = process.env.E2E_ARTIFACT_DIR ?? '.';
+  const PERSIST = process.env.E2E_PERSIST ?? 'client';
+  const WATCHDOG_MS = Number(process.env.E2E_WATCHDOG_MS ?? 30000);
+  const EXPECT_MS = Number(process.env.E2E_EXPECT_MS ?? 5000);
+  const ACTION_MS = Number(process.env.E2E_ACTION_MS ?? 5000);
+  const expectCfg = expect.configure({ timeout: EXPECT_MS });   // #4: bounds web-first assertions
+
+  let watchdog;                             // armed in Task 5 — no-op until then
+  let exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: 'unknown' };
+  // TEMPORARY placeholder — Task 4 replaces this with real failure classification.
+  async function onFailure(err) { exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: String(err) }; }
+
+  let phase = 'launch';                    // #6: phase drives classification
+  let browser, activeContext, activePage;
+  const contexts = [];
+  try {
+    browser = await chromium.launch();
+    activeContext = await browser.newContext();
+    contexts.push(activeContext);
+    activeContext.setDefaultTimeout(ACTION_MS);
+    await activeContext.tracing.start({ screenshots: true, snapshots: true });
+    activePage = await activeContext.newPage();
+    activePage.setDefaultTimeout(ACTION_MS);  // #4: page action timeout (spec requires page.setDefaultTimeout)
+
+    phase = 'nav';
+    await activePage.goto(APP_URL);
+
+    phase = 'journey';
+    if (MODE === 'hang-cleanup') { /* handled in Task 5 */ }
+    await activePage.getByTestId('note-input').fill('hello');
+    await activePage.getByTestId('save').click();
+    const target = MODE === 'expect-miss' ? 'never-present-value' : 'hello';
+    await expectCfg(activePage.getByTestId('saved')).toHaveText(target);
+
+    phase = 'persist';                       // filled in Task 6
+    exitInfo = { cls: 'PASS', code: 0 };
+  } catch (err) {
+    await onFailure(err);                    // sets exitInfo + captures (implemented in Task 4)
+  } finally {
+    // #2: real finally closes only what was created. #5: clear the watchdog ONLY after teardown
+    // returns — so a hanging teardown lets the watchdog fire (uncancellable by cleanup).
+    await teardownAll();
+    clearTimeout(watchdog);                  // set in Task 5; no-op until then
+  }
+  done(exitInfo.cls, exitInfo.code, exitInfo.diag);
+
+  async function teardownAll() {             // #2: close ALL contexts
+    for (const c of contexts) { try { await c.tracing.stop().catch(() => {}); await c.close(); } catch {} }
+    try { await browser?.close(); } catch {}
+  }
 }
 // e2e-ui-ref:end

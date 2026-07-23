@@ -96,6 +96,23 @@ test('resolution success (repo root) → CLASSIFICATION: PASS', { skip: skipReas
   assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
 });
 
+test('success mode → exit 0, CLASSIFICATION: PASS', { skip: skipReason() }, () => {
+  const r = runRef({ E2E_MODE: 'success', E2E_PERSIST: 'client' });
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
+});
+// TODO(task-4): remove { todo: true } once onFailure() classifies real journey errors as
+// FAIL_BUG — right now the placeholder onFailure only produces FAIL_INFRA, so this assertion
+// would fail until Task 4 lands. Kept green (not skipped) so the RED evidence is visible in
+// `node --test` output while the suite still exits 0.
+test('tiny E2E_EXPECT_MS on a never-matching assertion fails fast as FAIL_BUG', { skip: skipReason(), todo: true }, () => {
+  const t0 = Date.now();
+  const r = runRef({ E2E_MODE: 'expect-miss', E2E_EXPECT_MS: '250', E2E_WATCHDOG_MS: '30000' });
+  assert.notEqual(r.status, 0);
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_BUG\s*$/);
+  assert.ok(Date.now() - t0 < 15000, 'expect timeout, not watchdog, ended the run');
+});
+
 test('meetsVersionFloor: pure version-floor unit test (no browser required)', () => {
   assert.equal(meetsVersionFloor('1.59.0'), true);
   assert.equal(meetsVersionFloor('1.58.9'), false);
