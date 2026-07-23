@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -154,6 +154,17 @@ test('hanging cleanup → watchdog forces exit within kill deadline', { skip: sk
   assert.ok(watchdogIdx !== -1 && readyIdx < watchdogIdx, 'READY must precede the watchdog line (proves the watchdog fired during cleanup, not cold launch)');
   assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // classification is still the last line
   assert.ok(ms < 20000, `watchdog should fire quickly, took ${ms}ms`);  // < the 60s parent timeout
+});
+
+test('artifact dir NOT gitignored → FAIL_INFRA (fail closed)', { skip: skipReason() }, () => {
+  const bad = join(REPO, 'docs', `e2e-bad-${process.pid}`); // docs/ is tracked, not ignored
+  mkdirSync(bad, { recursive: true });
+  try {
+    const r = runRef({ E2E_MODE: 'assert-fail', E2E_ARTIFACT_DIR: bad });
+    assert.notEqual(r.status, 0);
+    assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
+    assert.match(r.stdout, /check-ignore|not ignored|trackable/i);
+  } finally { rmSync(bad, { recursive: true, force: true }); }
 });
 
 test('meetsVersionFloor: pure version-floor unit test (no browser required)', () => {

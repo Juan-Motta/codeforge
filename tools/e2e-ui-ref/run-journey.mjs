@@ -3,7 +3,7 @@
 // codeforge verify-e2e — UI journey reference harness (normative; Plan B embeds this region
 // verbatim). Adapt ONLY the marked JOURNEY block; the harness around it carries the ship-gate
 // guarantees the framework depends on — do not modify it.
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import { isAbsolute, join, resolve, sep, dirname } from 'node:path';
 import { pathToFileURL, fileURLToPath } from 'node:url';
@@ -100,6 +100,14 @@ if (isMain) {
   if (MODE === 'resolve-only') done('PASS', 0);  // used by the resolution acceptance test
 
   const ARTIFACT_DIR = process.env.E2E_ARTIFACT_DIR ?? '.';
+  // D4/§4.2f: fail closed unless the artifact dir is confirmed git-ignored (traces hold DOM/network
+  // /session data and must never be trackable).
+  mkdirSync(ARTIFACT_DIR, { recursive: true });
+  try {
+    execFileSync('git', ['check-ignore', '-q', ARTIFACT_DIR], { cwd: REPO }); // exit 0 = ignored
+  } catch {
+    done('FAIL_INFRA', 1, `artifact dir failed git check-ignore (not ignored, or not a git repo); refusing to write a trackable path: ${ARTIFACT_DIR}`);
+  }
   const PERSIST = process.env.E2E_PERSIST ?? 'client';
   const WATCHDOG_MS = Number(process.env.E2E_WATCHDOG_MS ?? 30000);
   const EXPECT_MS = Number(process.env.E2E_EXPECT_MS ?? 5000);
