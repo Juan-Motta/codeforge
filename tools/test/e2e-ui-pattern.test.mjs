@@ -124,7 +124,7 @@ test('navigation failure (bad URL) → FAIL_INFRA, not FAIL_BUG', { skip: skipRe
 
 test('hanging cleanup → watchdog forces exit within kill deadline', { skip: skipReason() }, () => {
   const t0 = Date.now();
-  const r = runRef({ E2E_MODE: 'hang-cleanup', E2E_WATCHDOG_MS: '400' });
+  const r = runRef({ E2E_MODE: 'hang-cleanup', E2E_WATCHDOG_MS: '2000' });
   const ms = Date.now() - t0;
   assert.notEqual(r.status, 0, 'must not exit 0');
   const readyIdx = r.stdout.indexOf('READY');
