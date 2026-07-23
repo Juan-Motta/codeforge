@@ -1,0 +1,89 @@
+#!/usr/bin/env node
+// e2e-ui-ref:start
+// codeforge verify-e2e — UI journey reference harness (normative; Plan B embeds this region
+// verbatim). Adapt ONLY the marked JOURNEY block; the harness around it carries the ship-gate
+// guarantees the framework depends on — do not modify it.
+import { existsSync, mkdirSync, readFileSync } from 'node:fs';
+import { createRequire } from 'node:module';
+import { isAbsolute, join, resolve, sep, dirname } from 'node:path';
+import { pathToFileURL, fileURLToPath } from 'node:url';
+import { realpathSync } from 'node:fs';
+import { execFileSync } from 'node:child_process';
+
+import { writeSync } from 'node:fs';
+// The last stdout line is ALWAYS the classification. Use SYNCHRONOUS writes: process.exit() can
+// truncate async stdout, so writeSync(1, ...) guarantees the payload is flushed before exit.
+function done(cls, code, diag) {
+  if (diag) writeSync(1, diag.endsWith('\n') ? diag : diag + '\n');
+  writeSync(1, `CLASSIFICATION: ${cls}\n`);
+  process.exit(code);
+}
+// Pure, unit-testable version-floor check (exported note: Task 2 Step 3b unit-tests this directly).
+export function meetsVersionFloor(v, floor = [1, 59, 0]) {
+  const core = String(v).split('-'); // a prerelease (1.59.0-alpha) is BELOW 1.59.0
+  const nums = core[0].split('.').map((n) => Number(n));
+  if (nums.some((n) => !Number.isInteger(n))) return false; // malformed → fail closed
+  for (let i = 0; i < 3; i++) {
+    const a = nums[i] ?? 0, b = floor[i];
+    if (a !== b) return a > b;
+  }
+  return core.length === 1; // exactly the floor with NO prerelease suffix passes; a prerelease fails
+}
+
+// Import-safety guard: everything below is side-effecting (reads env, may process.exit). Only run
+// it when this file is the executed entry script (`node run-journey.mjs`, or the test harness's
+// spawnSync(REF)) — NOT when another module imports it (e.g. to unit-test meetsVersionFloor above,
+// which must stay import-safe with zero side effects).
+const isMain = Boolean(process.argv[1]) && (() => {
+  try { return realpathSync(process.argv[1]) === fileURLToPath(import.meta.url); }
+  catch { return false; }
+})();
+
+if (isMain) {
+  const REPO = process.cwd();
+  // Guarantee #1 — App root: repo-relative required (reject absolute), realpath + containment,
+  // package.json must exist. createRequire needs an ABSOLUTE package.json filename.
+  const rel = process.env.E2E_APP_ROOT;
+  if (!rel) done('FAIL_INFRA', 1, 'E2E_APP_ROOT is required (repo-relative owning app package)');
+  if (isAbsolute(rel)) done('FAIL_INFRA', 1, `E2E_APP_ROOT must be repo-relative, got absolute: ${rel}`);
+  let absAppRoot = resolve(REPO, rel);
+  try { absAppRoot = realpathSync(absAppRoot); } catch { done('FAIL_INFRA', 1, `App root does not exist: ${rel}`); }
+  if (!(absAppRoot === REPO || absAppRoot.startsWith(REPO + sep))) done('FAIL_INFRA', 1, `App root escapes repo: ${rel}`);
+  const appPkg = join(absAppRoot, 'package.json');
+  if (!existsSync(appPkg)) done('FAIL_INFRA', 1, `No package.json at App root: ${rel}`);
+
+  // Guarantee #1 — resolve + import + normalize named exports; read version via fs (not a package
+  // exports subpath). ALL of this is inside one guard so any failure classifies FAIL_INFRA.
+  let chromium, expect;
+  try {
+    // Node's require.resolve ancestor-climbs node_modules all the way to the filesystem root
+    // regardless of any `paths` override — so resolvability alone can't tell "this app owns the
+    // dependency" from "some unrelated ancestor happens to have it hoisted/installed". Require an
+    // explicit declaration in the App root's OWN package.json first; only THEN resolve (which may
+    // legitimately climb to a hoisted monorepo-workspace-root node_modules — that's expected).
+    const appPkgJson = JSON.parse(readFileSync(appPkg, 'utf8'));
+    const declared = { ...appPkgJson.dependencies, ...appPkgJson.devDependencies, ...appPkgJson.peerDependencies };
+    if (!declared['@playwright/test']) throw new Error('@playwright/test is not declared in the App root package.json — not resolvable as an owned dependency');
+    const requireFromApp = createRequire(appPkg);
+    const resolved = requireFromApp.resolve('@playwright/test');
+    const mod = await import(pathToFileURL(resolved).href);
+    ({ chromium, expect } = mod.default ?? mod);       // CJS entry may not surface named exports via import()
+    if (!chromium || !expect) throw new Error('@playwright/test did not expose chromium/expect');
+    // Locate @playwright/test's package.json by walking UP from the resolved entry to the first
+    // package.json whose name === '@playwright/test' (robust to the entry not being at pkg root).
+    let d = dirname(resolved), pkgJson;
+    for (let i = 0; i < 8 && d !== dirname(d); i++, d = dirname(d)) {
+      const p = join(d, 'package.json');
+      if (existsSync(p)) { const j = JSON.parse(readFileSync(p, 'utf8')); if (j.name === '@playwright/test') { pkgJson = j; break; } }
+    }
+    if (!pkgJson) throw new Error('could not locate @playwright/test package.json');
+    if (!meetsVersionFloor(pkgJson.version)) throw new Error(`@playwright/test ${pkgJson.version} < 1.59 (ariaSnapshot mode)`);
+  } catch (e) {
+    done('FAIL_INFRA', 1, `dependency preflight failed: ${e.message}`);
+  }
+
+  const APP_URL = process.env.E2E_APP_URL || done('FAIL_INFRA', 1, 'E2E_APP_URL required');
+  const MODE = process.env.E2E_MODE ?? 'success';
+  if (MODE === 'resolve-only') done('PASS', 0);  // used by the resolution acceptance test
+}
+// e2e-ui-ref:end
