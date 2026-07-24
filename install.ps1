@@ -284,6 +284,15 @@ if (-not (Select-String -Quiet -SimpleMatch $marker $gi)) {
   Add-Content -Path $gi -Value $block
 }
 
+# Ensure .workflow/ is ignored (idempotent, exact-line), independent of the marker block.
+$giPath = Join-Path $Target '.gitignore'
+$giLines = if (Test-Path $giPath) { Get-Content -Path $giPath } else { @() }
+# Exact, case-SENSITIVE, whole-line match (mirrors the sh side's `grep -qxF`) — NOT .Trim()/-eq,
+# which would let ` .workflow/` or `.WORKFLOW/` falsely suppress the required entry.
+if (-not ($giLines | Where-Object { $_ -ceq '.workflow/' })) {
+  Add-Content -Path $giPath -Value '.workflow/'
+}
+
 # --- warn if the generated config lacks the forge push/PR gate ---
 function Warn-Gate([string]$rel, [string]$needle, [string]$hint) {
   $f = Join-Path $Target $rel
