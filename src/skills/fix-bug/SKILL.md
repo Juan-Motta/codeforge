@@ -46,7 +46,7 @@ Record iterations in `.workflow/state.md`.
 
 Exercise the original repro and confirm it's gone; check you didn't break neighbors.
 Note what you observed. Then run the `verify-e2e` skill to confirm the fix through the
-user-facing interface (API/CLI). Internal-only fixes record
+user-facing interface (API/CLI/UI). Internal-only fixes record
 `E2E verified — N/A: <reason>`. Record the fix (symptom → root cause → fix → how
 verified) in `docs/solutions/<slug>.md` (`shared/rules/memory.md`).
 

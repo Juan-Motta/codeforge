@@ -292,6 +292,13 @@ if ! grep -qx '# codeforge (local state — do not commit)' "$TARGET/.gitignore"
   } >> "$TARGET/.gitignore"
 fi
 
+# Ensure .workflow/ is ignored even if the marker block predates it or was edited (idempotent).
+if ! grep -qxF '.workflow/' "$TARGET/.gitignore"; then
+  # If the file's last byte isn't a newline, add one first so we don't fuse onto that line.
+  [ -s "$TARGET/.gitignore" ] && [ -n "$(tail -c1 "$TARGET/.gitignore")" ] && printf '\n' >> "$TARGET/.gitignore"
+  printf '.workflow/\n' >> "$TARGET/.gitignore"
+fi
+
 # --- warn if the generated config lacks the forge push/PR gate (points at the codeforge
 #     source baseline that produced it) ---
 warn_gate() {  # $1 = generated file in target, $2 = grep needle, $3 = hint

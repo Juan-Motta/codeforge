@@ -18,11 +18,20 @@ jobs:
       # ink/react/ink-testing-library, so install deps before `node --test`.
       - name: Install dependencies
         run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
       - name: Lint skills (structural + codeforge rules)
         run: node tools/lint-skills.mjs
       - name: Routing / collision evals
         run: node tools/run-evals.mjs
       - name: Tool unit tests
+        env:
+          E2E_BROWSER_REQUIRED: '1'
         run: node --test
 
   installer:

@@ -174,7 +174,7 @@ test('k: E2E box line copied from the ship-gates.md doc text (no real N/A escape
   // state.md and checks it, the gate must NOT treat it as an N/A skip — it falls through
   // and is rejected as a placeholder report path (`<...>`).
   const dir = setup({
-    box: '- [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling) and UI-only changes (no v1 adapter)',
+    box: '- [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling)',
     report: undefined,
   });
   assert.equal(run(dir), 1);

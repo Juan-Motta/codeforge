@@ -116,12 +116,15 @@ Verified/Attested/Advisory ladder.
 
 ## verify-e2e roadmap (v2)
 
+Shipped: the **UI interface adapter** — `verify-e2e` now drives browser-based use cases
+alongside API/CLI, and the workflow skills (`new-feature`, `fix-bug`) route UI-facing
+changes through it instead of recording `N/A`.
+
 Planned extensions to the `verify-e2e` skill — each is a skill/config change, no hooks
 needed:
 
 - **Playwright `.spec.ts` regression bridge:** graduate passing use cases into
   deterministic, replayable spec files for CI, alongside the markdown use cases.
-- **UI interface adapter:** drive browser-based use cases (today's skill covers API/CLI).
 - **Automatic multi-surface coverage audit:** flag when a feature exposes UI/API/CLI
   surfaces but use cases only cover a subset.
 

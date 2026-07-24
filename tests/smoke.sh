@@ -56,6 +56,31 @@ done
 diff -q "$TB/AGENTS.md" "$TB/CLAUDE.md" >/dev/null || fail "AGENTS.md does not match CLAUDE.md"
 echo "ok: bash install (thin payload, no machinery leak, AGENTS.md mirror)"
 
+# --- verify-e2e UI adapter: ships to both mirrors BYTE-IDENTICAL (embed survives sync, §5.11/D6b),
+#     and no UI-deferral wording in ANY shipped surface that had it removed. ---
+for m in .claude .agents; do
+  se="$TB/$m/skills/verify-e2e/SKILL.md"
+  [ -f "$se" ] || fail "verify-e2e skill missing from $m mirror"
+  grep -qF '<!-- e2e-ui-ref:start -->' "$se" || fail "$m: verify-e2e embed sentinels missing (embed did not survive sync)"
+  # sync (src/sync.sh) copies skills with a pure cp -R (no templating), so the installed skill must
+  # be byte-identical to src. Combined with the src-vs-reference drift test (skill-embed-drift),
+  # this proves the INSTALLED embedded block === the reference harness byte-for-byte (§5.11).
+  diff -q "$se" "$ROOT/src/skills/verify-e2e/SKILL.md" >/dev/null \
+    || fail "$m: installed verify-e2e skill differs from src (embed did not survive sync byte-for-byte)"
+done
+# The UI→N/A carve-out was removed from these surfaces (Plan B); assert it did not leak into ANY of
+# their SHIPPED copies (both mirrors + the flipped workflows/gates + generated CLAUDE.md/AGENTS.md).
+for f in "$TB"/.claude/skills/verify-e2e/SKILL.md "$TB"/.agents/skills/verify-e2e/SKILL.md \
+         "$TB"/.claude/skills/new-feature/SKILL.md "$TB"/.agents/skills/new-feature/SKILL.md \
+         "$TB"/.claude/skills/fix-bug/SKILL.md "$TB"/.agents/skills/fix-bug/SKILL.md \
+         "$TB"/shared/rules/ship-gates.md "$TB"/CLAUDE.md "$TB"/AGENTS.md; do
+  [ -f "$f" ] || fail "expected shipped surface missing: $f"
+  if grep -qiE 'no v1 adapter|UI (is |journey,? )?deferred|UI-only changes' "$f"; then
+    fail "UI-deferral wording leaked into shipped $f"
+  fi
+done
+echo "ok: verify-e2e UI adapter ships byte-identical to both mirrors; no UI-deferral wording in any shipped surface"
+
 # --- 1b. bash install scaffolds the e2e report/use-case dirs (ship-gate binds to these) ---
 [ -d "$TB/docs/e2e/reports" ]   || fail "bash: docs/e2e/reports was not scaffolded"
 [ -d "$TB/docs/e2e/use-cases" ] || fail "bash: docs/e2e/use-cases was not scaffolded"
