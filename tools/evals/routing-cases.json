@@ -231,7 +231,11 @@
       "positive": [
         "run the user journeys against the API and confirm the evidence report passes",
         "exercise the checkout use cases through the real interface and re-check they persist",
-        "drive the order-creation flow via the CLI as a user would and confirm the outcome"
+        "drive the order-creation flow via the CLI as a user would and confirm the outcome",
+        {
+          "prompt": "drive the checkout journey in a real browser and confirm the evidence report passes",
+          "top_k": 1
+        }
       ],
       "negative": [
         {
