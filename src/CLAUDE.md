@@ -46,7 +46,7 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 - `quick-fix` — trivial changes (<3 files, no behavior risk); escalate if scope grows
 - `review` — cross-engine second opinion on a plan or diff (P0–P3 findings)
 - `simplify` — post-green, behavior-preserving cleanup pass (reduce complexity, tests stay green)
-- `verify-e2e` — execute API/CLI user-journey use cases, write an evidence report, and bind the E2E ship-gate box to it
+- `verify-e2e` — execute API/CLI and UI user-journey use cases, write an evidence report, and bind the E2E ship-gate box to it
 - `council` — multi-perspective decision analysis: several engines as advisors → synthesized verdict + minority report (for hard, expensive forks)
 - `adr` — record an architecture decision (context, alternatives, consequences) → `docs/adr/`
 - `finish-branch` — close out a branch: confirm gates → final verify → commit → push → PR

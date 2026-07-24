@@ -48,9 +48,10 @@ Then run `simplify` for a behavior-preserving cleanup pass while the suite is gr
 
 ## 6. Verify
 
-Run the `verify-e2e` skill: design/execute API & CLI user-journey use cases, and let it
-write the evidence report the ship-gate checks. For purely internal or UI-only changes,
-record `E2E verified — N/A: <reason>` in `.workflow/state.md`.
+Run the `verify-e2e` skill: design/execute API, CLI, and (for UI-facing changes) UI
+user-journey use cases, and let it write the evidence report the ship-gate checks. For
+purely internal changes (migration, refactor, tooling), record
+`E2E verified — N/A: <reason>` in `.workflow/state.md`.
 
 ## 7. Ship
 

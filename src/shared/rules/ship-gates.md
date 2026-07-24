@@ -16,7 +16,7 @@ shipping.
       fixes always require it.
 - [ ] Tests written (TDD) and passing
 - [ ] Code review clean — no open P0/P1/P2 (`severity.md`), cross-engine
-- [ ] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling) and UI-only changes (no v1 adapter)
+- [ ] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling)
 - [ ] `.workflow/state.md` updated
 
 > The `E2E verified` box is an **Attested** signal: it asserts that a verify-e2e run
