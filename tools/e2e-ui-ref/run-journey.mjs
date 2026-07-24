@@ -114,8 +114,7 @@ if (isMain) {
   const ACTION_MS = Number(process.env.E2E_ACTION_MS ?? 5000);
   const expectCfg = expect.configure({ timeout: EXPECT_MS });   // #4: bounds web-first assertions
 
-  // #5: hard watchdog — fires even if cleanup hangs (it is NEVER cleared before teardown; only a
-  // fully-successful run clears it right before done('PASS')). Diagnostic THEN classification (last).
+  // #5: hard watchdog — cleared ONLY in the finally, after teardownAll() returns (both success and failure paths), so a hanging teardown lets it fire.
   let watchdog = setTimeout(() => { done('FAIL_INFRA', 3, 'watchdog: overall deadline exceeded'); }, WATCHDOG_MS);
   let exitInfo = { cls: 'FAIL_INFRA', code: 1, diag: 'unknown' };
   async function onFailure(err) {

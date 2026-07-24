@@ -139,7 +139,7 @@ test('failure inside the fresh context → FAIL_BUG, trace from the 2nd context'
 test('navigation failure (bad URL) → FAIL_INFRA, not FAIL_BUG', { skip: skipReason() }, () => {
   const r = runRef({ E2E_APP_URL: 'http://127.0.0.1:9/nope', E2E_MODE: 'success', E2E_ACTION_MS: '2000' });
   assert.notEqual(r.status, 0);
-  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // #6: nav phase → INFRA even on TimeoutError
+  assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);  // nav-phase failure (ERR_UNSAFE_PORT) classifies FAIL_INFRA — proves classification is phase-based, not error-name-based.
 });
 
 test('hanging cleanup → watchdog forces exit within kill deadline', { skip: skipReason() }, () => {
