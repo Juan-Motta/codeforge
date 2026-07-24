@@ -1,4 +1,4 @@
-import { test } from 'node:test';
+import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
@@ -26,11 +26,21 @@ function skipReason() {
   return false;
 }
 // Artifacts go in a gitignored dir INSIDE the repo so the harness's git check-ignore guard passes.
+// Track what THIS file creates so `after` can remove only its own dirs (no cross-file race with
+// e.g. skill-embed-portability's portab-* dirs under the same base).
+const createdArtifactDirs = [];
 function gitignoredArtifactDir() {
   const base = join(REPO, '.workflow', 'e2e-run');
   mkdirSync(base, { recursive: true });
-  return mkdtempSync(join(base, 'test-'));
+  const dir = mkdtempSync(join(base, 'test-'));
+  createdArtifactDirs.push(dir);
+  return dir;
 }
+// Clean up this file's artifact dirs after the run (they'd otherwise accumulate unbounded — the
+// dirs are gitignored, but leaving hundreds of them is cruft). Only removes dirs we created.
+after(() => {
+  for (const d of createdArtifactDirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
+});
 function runRef(env) {
   const artifactDir = gitignoredArtifactDir();
   const res = spawnSync(process.execPath, [REF], {
