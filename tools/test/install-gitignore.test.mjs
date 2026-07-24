@@ -14,8 +14,10 @@ function countWorkflowIgnores(gitignorePath) {
 
 // Strict (untrimmed) count — used where the fixture deliberately seeds near-miss lines (leading
 // space, wrong case) that would trim-equal '.workflow/' and so must NOT be conflated with it.
+// A trailing CR is stripped (PowerShell Add-Content appends CRLF on Windows, so the legit line
+// is '.workflow/\r') — but nothing else, so a leading-space/wrong-case near-miss still fails.
 function countExactWorkflowLines(gitignorePath) {
-  return readFileSync(gitignorePath, 'utf8').split('\n').filter((l) => l === '.workflow/').length;
+  return readFileSync(gitignorePath, 'utf8').split('\n').filter((l) => l.replace(/\r$/, '') === '.workflow/').length;
 }
 
 // Derive the EXACT marker line from install.sh so the seed byte-matches (em-dash included) — a
