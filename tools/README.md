@@ -21,7 +21,7 @@ npm run lint:skills
 - **Index parity** — every skill is listed in `src/CLAUDE.md`'s skill index and vice versa.
   (`AGENTS.md` is generated from `CLAUDE.md`, so one drift poisons all three engines.)
 - **Model-ID quarantine** — a skill must not hard-code a model id (`gpt-…`, `glm-…`,
-  `kimi-k…`, `opencode-go/…`, `opus`/`sonnet`/`haiku`). `shared/rules/models.md` is the single
+  `kimi-k…`, `opencode-go/…`, `opus`/`sonnet`/`haiku`). `.codeforge/rules/models.md` is the single
   source. Engine *names* (Claude / Codex / OpenCode) are fine.
 - **Reference integrity** — every `shared/…​.md` path a skill mentions exists under `src/`.
 

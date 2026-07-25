@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SH = fileURLToPath(new URL('../../src/shared/scripts/goal-digest.sh', import.meta.url));
+const SH = fileURLToPath(new URL('../../src/codeforge/scripts/goal-digest.sh', import.meta.url));
 const hasSh = spawnSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0;
 const WIN = process.platform === 'win32';
 const G = { skip: !hasSh };
@@ -45,8 +45,8 @@ test('invariance holds with modify+add together', G, () => {
 
 test('excluded path is digest-neutral; in-scope change moves it', G, () => {
   const { dir, base } = initRepo(); const before = dg(dir, base);
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'), 'noise\n'); assert.equal(dg(dir, base), before);
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'), 'noise\n'); assert.equal(dg(dir, base), before);
   writeFileSync(join(dir, 'seed.txt'), 'seed\nY\n'); assert.notEqual(dg(dir, base), before);
 });
 

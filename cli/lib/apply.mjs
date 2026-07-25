@@ -77,7 +77,7 @@ function replaceSection(md, heading, bodyText) {
 }
 
 export function applyModels(targetDir, answers) {
-  const path = join(targetDir, 'shared', 'rules', 'models.md');
+  const path = join(targetDir, '.codeforge', 'rules', 'models.md');
   assertExists(path);
   const md = readFileSync(path, 'utf8');
   const re = new RegExp(`${START}[\\s\\S]*?${END}`);
@@ -89,7 +89,7 @@ export function applyModels(targetDir, answers) {
 }
 
 export function applyProfile(targetDir, answers) {
-  const path = join(targetDir, 'shared', 'state.template.md');
+  const path = join(targetDir, '.codeforge', 'state.template.md');
   assertExists(path);
   if (!answers.profile) return;
   const md = readFileSync(path, 'utf8');
@@ -128,7 +128,7 @@ model: ${c.model.model}
 
 You implement ONE task from the active codeforge plan. Read the task, write the failing
 test first, make it pass with the minimal change, and run the covering tests. Then honor the
-**commit_policy** the dispatching driver gave you (see shared/rules/execution.md):
+**commit_policy** the dispatching driver gave you (see .codeforge/rules/execution.md):
 
 - commit_policy=per-task (the default): commit, then report status (DONE / BLOCKED), the
   commit sha, and a one-line test summary.
@@ -143,8 +143,8 @@ other tasks. Follow the repo's TDD and ship-gate rules.
 }
 
 // Record the execution mode in PROJECT.md's "## Execution" section so the workflow skills
-// (via shared/rules/execution.md) can read it. Lives in PROJECT.md because it is
-// project-owned and survives `--upgrade` (unlike the by-name-refreshed shared/rules).
+// (via .codeforge/rules/execution.md) can read it. Lives in PROJECT.md because it is
+// project-owned and survives `--upgrade` (unlike the by-name-refreshed .codeforge/rules).
 export function applyExecution(targetDir, answers) {
   const path = join(targetDir, 'PROJECT.md');
   if (!existsSync(path)) return;
@@ -158,9 +158,9 @@ export function applyExecution(targetDir, answers) {
 }
 
 // Persist the wizard's review policy into PROJECT.md § Review policy — the source of truth the
-// installers re-render `shared/rules/models.md` and `shared/state.template.md` from. Same reason
+// installers re-render `.codeforge/rules/models.md` and `.codeforge/state.template.md` from. Same reason
 // as applyExecution: PROJECT.md is project-owned and survives `--upgrade`, whereas anything
-// written only into shared/** is overwritten by name on the next install.
+// written only into .codeforge/** is overwritten by name on the next install.
 //
 // An absent answer leaves the existing line alone rather than blanking it, so a partial wizard run
 // (or a future wizard that stops asking one of these) cannot silently drop a team's choice.

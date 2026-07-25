@@ -2,7 +2,7 @@
 
 Which boxes are required before an outward action (`git commit`, `git push`,
 `gh pr create`) depends on the **gate profile** of the active workflow. The skill records
-its profile in `.workflow/state.md`; `finish-branch` validates the active profile before
+its profile in `.codeforge/workflow/state.md`; `finish-branch` validates the active profile before
 shipping.
 
 ## Gate profiles
@@ -17,7 +17,7 @@ shipping.
 - [ ] Tests written (TDD) and passing
 - [ ] Code review clean — no open P0/P1/P2 (`severity.md`), cross-engine
 - [ ] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling)
-- [ ] `.workflow/state.md` updated
+- [ ] `.codeforge/workflow/state.md` updated
 
 > The `E2E verified` box is an **Attested** signal: it asserts that a verify-e2e run
 > produced a `VERDICT: PASS` report committed under `docs/e2e/reports/`. `check-gates`
@@ -75,8 +75,8 @@ The `— N/A:` escape is an **exact em-dash form** (em-dash, space, `N/A:`, non-
 A bare `N/A:`, a `- N/A:`, or a backticked `` `N/A:` `` inside explanatory text does **not**
 count as the escape — those fall through to the report-path checks above.
 
-The active workflow records its profile in `.workflow/state.md` (the **Profile** field —
-see `shared/state.template.md`); `finish-branch` validates that profile's boxes before shipping.
+The active workflow records its profile in `.codeforge/workflow/state.md` (the **Profile** field —
+see `.codeforge/state.template.md`); `finish-branch` validates that profile's boxes before shipping.
 
 ### `light` — used by `quick-fix`
 
@@ -99,7 +99,7 @@ If no second engine is available, satisfy the review items by either:
   `severity.md` as if it were someone else's; or
 - a **human reviewer**.
 
-Then log a waiver in `.workflow/state.md`, e.g.:
+Then log a waiver in `.codeforge/workflow/state.md`, e.g.:
 `Review: single-engine self-review (no second engine available) — <date>`
 
 Cross-engine review is the default and preferred (real model diversity). The waiver just
@@ -133,7 +133,7 @@ produced it:
   (1)-(5), the tier degrades toward Attested. See `docs/ci-templates/README.md` for setup.
   Repo/org admins can still bypass branch protection unless you've configured otherwise.
 - **Attested** — an agent or human *claimed* it and something validated the claim's *shape*,
-  not its truth. A `- [x]` box in `.workflow/state.md`, or `check-gates.sh` reporting the
+  not its truth. A `- [x]` box in `.codeforge/workflow/state.md`, or `check-gates.sh` reporting the
   checklist is complete, is attested: it confirms the record says "done", not that the work
   was done. A file that says `reviewer_engine: codex` is not proof Codex reviewed anything.
 - **Advisory** — present only as an instruction the agent is asked to follow. The workflow
@@ -152,11 +152,11 @@ of them a hard block — plus one thing that actually binds, in CI:
 1. **Advisory (all engines):** you are instructed — here and in the workflow skill — not
    to ship until the profile's boxes pass. Honor it.
 2. **Deterministic Tier-B check (all engines):** `finish-branch` runs
-   `shared/scripts/check-gates.sh` (`.ps1` on Windows), which reads `.workflow/state.md` and
+   `.codeforge/scripts/check-gates.sh` (`.ps1` on Windows), which reads `.codeforge/workflow/state.md` and
    exits non-zero listing any unchecked box **or any missing required gate**. It validates the
    profile's gates by **identity, not just count** — a checklist with the right number of
    checked boxes but renamed or omitted gates is rejected, so the box wording must name each
-   required gate (the canonical wording lives in `shared/state.template.md`). This turns
+   required gate (the canonical wording lives in `.codeforge/state.template.md`). This turns
    "eyeball the file" into "run a command that fails loudly" — a much harder thing to
    rationalize past, and the *same* command a human or CI can run. It is still **attested** (it
    validates the record, not the work) and still **skippable** (Tier B runs only when invoked —
@@ -172,7 +172,7 @@ of them a hard block — plus one thing that actually binds, in CI:
 
 The prompt shows the human a generic "allow this command?", **not** the checklist — so it
 is a commit-confirmation, not proof the gates are green. The approver must
-**independently check `.workflow/state.md` before approving** (or run `check-gates.sh`).
+**independently check `.codeforge/workflow/state.md` before approving** (or run `check-gates.sh`).
 
 4. **The one mechanism that can bind for everyone: CI + branch protection.** codeforge ships
    `docs/ci-templates/gates.yml` as the concrete **Verified**-tier mechanism: CI independently

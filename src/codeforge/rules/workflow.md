@@ -36,9 +36,9 @@ not a runtime gate — see the honesty note in the `goal` skill.
 5. **Code review** — dual review (the other engine + self) against the diff; fix all
    P0/P1/P2 before shipping (see `severity.md`).
 6. **Verify** — actually exercise the change, don't just trust tests.
-7. **Ship** — only when `.workflow/state.md` gates pass (see `ship-gates.md`).
+7. **Ship** — only when `.codeforge/workflow/state.md` gates pass (see `ship-gates.md`).
 
 ## Tracking
 
-Keep `.workflow/state.md` current: check boxes as phases complete, record the active
+Keep `.codeforge/workflow/state.md` current: check boxes as phases complete, record the active
 branch and the review iterations. It is the source of truth the ship-gate checklist reads.

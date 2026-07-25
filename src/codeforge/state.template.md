@@ -1,18 +1,18 @@
 # Workflow State — <feature-name>
 
-> Copy this file to `.workflow/state.md` when a workflow starts. It is the source of truth
+> Copy this file to `.codeforge/workflow/state.md` when a workflow starts. It is the source of truth
 > the ship-gate reads. Keep it updated as you progress.
 
 ## Active workflow
 
 - **Skill:** new-feature
-- **Profile:** standard  <!-- standard (new-feature, fix-bug) | light (quick-fix) — see shared/rules/ship-gates.md -->
+- **Profile:** standard  <!-- standard (new-feature, fix-bug) | light (quick-fix) — see .codeforge/rules/ship-gates.md -->
 - **Feature:** <name>
 - **Branch:** <feat/...>
 - **Driver:** <claude | codex | opencode>
 - **Phase:** <brainstorm | plan | design-review | tdd | code-review | verify | ship>
 
-## Ship-gate checklist (boxes for the Profile above — see shared/rules/ship-gates.md)
+## Ship-gate checklist (boxes for the Profile above — see .codeforge/rules/ship-gates.md)
 
 <!-- `standard` profile shown below; for the `light` profile (quick-fix) use its shorter list. -->
 
@@ -27,7 +27,7 @@
 
 <!-- Standalone workflows: free-form "Design/Code review iteration N — <engine> — findings: …".
      Under /goal (owner=goal): fixed-schema lines that goal-state.sh parses — see
-     shared/rules/goal-state.md, e.g.
+     .codeforge/rules/goal-state.md, e.g.
      - loop=code — round=1 — kind=round — reviewer=codex — result=P1=2 — digest=<sha> — ts=<ISO> -->
 
 - Design review iteration 1 — <engine> — findings: <P0/P1/P2 counts or "clean">
@@ -39,11 +39,11 @@
 
 ## Blockers
 
-<!-- HALT records (/goal, see shared/rules/goal-state.md). Empty when nothing is halted.
+<!-- HALT records (/goal, see .codeforge/rules/goal-state.md). Empty when nothing is halted.
      - [ ] BLOCKER — <phase> — <reason> — ts=<ISO>
      HALT is terminal for automation; a human dispositions/resets before a new /goal run. -->
 
 ## Attempts
 
-<!-- Durable retry counters (/goal, see shared/rules/goal-state.md). Empty by default.
+<!-- Durable retry counters (/goal, see .codeforge/rules/goal-state.md). Empty by default.
      - ATTEMPT ship-red — n=<k> — ts=<ISO>   (n>=2 → /goal HALTs) -->

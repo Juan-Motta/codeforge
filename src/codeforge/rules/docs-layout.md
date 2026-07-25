@@ -19,5 +19,5 @@ findable and portable across all three engines.
 
 - Create the file under the right folder; the folder already exists (`.gitkeep`).
 - One artifact per file; name it after the feature/topic so it's greppable.
-- These are the **portable memory** of the project — see `shared/rules/memory.md`.
+- These are the **portable memory** of the project — see `.codeforge/rules/memory.md`.
 - Keep `docs/CHANGELOG.md` newest-first, one line or short block per shipped change.

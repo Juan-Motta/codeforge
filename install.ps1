@@ -19,7 +19,7 @@
 # codeforge dependency at runtime.
 #
 # LANDS IN THE TARGET (runtime only): CLAUDE.md, AGENTS.md, opencode.json, .claude/,
-#   .agents/, .codex/ (generated), shared/rules/*.md + shared/state.template.md + shared/scripts/* (managed),
+#   .agents/, .codex/ (generated), .codeforge/rules/*.md + .codeforge/state.template.md + .codeforge/scripts/* (managed),
 #   docs/ scaffolding + CHANGELOG, PROJECT.md + CONTINUITY.md (project-owned, seeded).
 # STAYS IN codeforge (never copied): src/skills (neutral), configs/, sync.sh, sync.ps1,
 #   *.template.md, docs/extending.md.
@@ -52,7 +52,7 @@ if (-not (Test-Path -PathType Container $Target)) { Write-Error "target dir not 
 $Target = (Resolve-Path $Target).Path
 # Did a prior forge install own .claude/settings.local.json? (read before the manifest is rewritten)
 $priorLocalManaged = $false
-$mf = Join-Path $Target '.forge-manifest'
+$mf = Join-Path $Target '.codeforge/manifest'
 if ((Test-Path -LiteralPath $mf -PathType Leaf) -and (Select-String -LiteralPath $mf -Pattern '^localsettings:managed$' -Quiet)) {
   $priorLocalManaged = $true
 }
@@ -66,7 +66,7 @@ Write-Host "codeforge $forgeVersion -> installing into: $Target  (mode: $Mode)"
 
 # --- version drift advisory (informational only, never blocks) ---
 $priorVersion = ""
-$fvFile = Join-Path $Target '.forge-version'
+$fvFile = Join-Path $Target '.codeforge/version'
 if (Test-Path -LiteralPath $fvFile -PathType Leaf) {
   $pv = (Get-Content -LiteralPath $fvFile -TotalCount 1)
   if ($pv) { $priorVersion = $pv.Trim() }
@@ -88,16 +88,16 @@ function Has-ForgeMarker([string]$file) {
 
 # --- self-healing: drop machinery this version no longer installs into the target ---
 # (thin model — migrates a target from an older, bloated install.) Gated on a prior forge
-# install (.forge-manifest present) so a FIRST install never touches an unrelated project's
+# install (.codeforge/manifest present) so a FIRST install never touches an unrelated project's
 # own configs/ or skills/ dirs.
-if (Test-Path (Join-Path $Target '.forge-manifest')) {
-  $ghSh = Join-Path $Target 'shared/scripts/claude-gate-hook.sh'
-  $ghPs1 = Join-Path $Target 'shared/scripts/claude-gate-hook.ps1'
+if (Test-Path (Join-Path $Target '.codeforge/manifest')) {
+  $ghSh = Join-Path $Target '.codeforge/scripts/claude-gate-hook.sh'
+  $ghPs1 = Join-Path $Target '.codeforge/scripts/claude-gate-hook.ps1'
   if ((Test-Path $ghSh) -or (Test-Path $ghPs1)) {
     Write-Host "  ~ the Claude gate hook (-WithHooks) is retired — enforcement is now the CI Verified tier (docs/ci-templates/)."
   }
   # Retired: the opt-in Claude gate hook (superseded by the CI Verified tier).
-  foreach ($rel in 'shared/scripts/claude-gate-hook.sh', 'shared/scripts/claude-gate-hook.ps1') {
+  foreach ($rel in '.codeforge/scripts/claude-gate-hook.sh', '.codeforge/scripts/claude-gate-hook.ps1') {
     $p = Join-Path $Target $rel
     if (Test-Path $p) { Remove-Item -Force $p; Write-Host "  - removed retired gate hook: $rel" }
   }
@@ -128,6 +128,27 @@ if (Test-Path (Join-Path $Target '.forge-manifest')) {
   }
 }
 
+# --- remove the pre-.codeforge/ scattered layout, if this target still has it ---
+# Twin of the same block in install.sh. NOT a migration — nothing is carried over, by design. It
+# exists so a re-installed target cannot end up with BOTH layouts, i.e. two competing copies of the
+# rules and scripts with no way to tell which one the agent is reading. Gated on the OLD root
+# markers, so a project that happens to own a `shared/` dir is never touched.
+$oldManifest = Join-Path $Target '.forge-manifest'
+$oldVersion  = Join-Path $Target '.forge-version'
+if ((Test-Path $oldManifest) -or (Test-Path $oldVersion)) {
+  Write-Host "  ~ this target uses the pre-.codeforge/ layout — removing the old machinery (no migration; see the plan doc)."
+  $oldShared = Join-Path $Target 'shared'
+  if (Test-Path $oldShared) { Remove-Item -Recurse -Force $oldShared }
+  foreach ($p in $oldManifest, $oldVersion) { if (Test-Path $p) { Remove-Item -Force $p } }
+  # .workflow/ is volatile per-developer state and gitignored; nothing durable is lost.
+  $oldWf = Join-Path $Target '.workflow'
+  if (Test-Path $oldWf) {
+    Remove-Item -Recurse -Force $oldWf
+    Write-Host "    - removed .workflow/ (volatile state; a workflow re-creates it at .codeforge/workflow/)"
+  }
+  Write-Host "    - removed shared/, .forge-manifest, .forge-version"
+}
+
 # --- MANAGED: CLAUDE.md (back up a pre-existing, non-forge one) ---
 $tClaude = Join-Path $Target 'CLAUDE.md'
 if ((Test-Path $tClaude) -and -not (Has-ForgeMarker $tClaude)) {
@@ -136,48 +157,48 @@ if ((Test-Path $tClaude) -and -not (Has-ForgeMarker $tClaude)) {
 }
 Copy-Item (Join-Path $Payload 'CLAUDE.md') $tClaude -Force
 
-# --- MANAGED: framework shared/rules/ (per-entry overwrite by name) ---
-New-Item -ItemType Directory -Force -Path (Join-Path $Target 'shared/rules') | Out-Null
-$newRules = @(Get-ChildItem -File (Join-Path $Payload 'shared/rules') -Filter *.md).Name
+# --- MANAGED: framework .codeforge/rules/ (per-entry overwrite by name) ---
+New-Item -ItemType Directory -Force -Path (Join-Path $Target '.codeforge/rules') | Out-Null
+$newRules = @(Get-ChildItem -File (Join-Path $Payload 'codeforge/rules') -Filter *.md).Name
 
 # Prune framework rules removed upstream (see install.sh for rationale). Project-owned rules
 # aren't in the manifest, so they're untouched. No manifest yet = skip prune.
-$manifest = Join-Path $Target '.forge-manifest'
+$manifest = Join-Path $Target '.codeforge/manifest'
 if (Test-Path $manifest) {
   foreach ($line in Get-Content $manifest) {
     if ($line -like 'rule:*') {
       $n = $line.Substring(5)
       # Treat the committed manifest as untrusted: a prune target must be a bare *.md filename,
-      # never a path/traversal, so a tampered entry can't delete outside shared/rules/.
+      # never a path/traversal, so a tampered entry can't delete outside .codeforge/rules/.
       if ($n -match '[\\/]' -or $n -match '\.\.' -or $n -eq '' -or $n -notmatch '\.md$') {
         [Console]::Error.WriteLine("  ! ignoring unsafe manifest rule entry: $n")
       } elseif ($newRules -notcontains $n) {
-        Remove-Item -Force (Join-Path $Target "shared/rules/$n") -ErrorAction SilentlyContinue
+        Remove-Item -Force (Join-Path $Target ".codeforge/rules/$n") -ErrorAction SilentlyContinue
         Write-Host "  - pruned framework rule removed upstream: $n"
       }
     }
   }
 }
 
-foreach ($f in Get-ChildItem -File (Join-Path $Payload 'shared/rules') -Filter *.md) {
-  Copy-Item $f.FullName (Join-Path $Target "shared/rules/$($f.Name)") -Force
+foreach ($f in Get-ChildItem -File (Join-Path $Payload 'codeforge/rules') -Filter *.md) {
+  Copy-Item $f.FullName (Join-Path $Target ".codeforge/rules/$($f.Name)") -Force
 }
 
 # Record the framework-owned manifest for the next upgrade's prune (rules only).
 Set-Content -Path $manifest -Value (@($newRules | ForEach-Object { "rule:$_" }))
 
 # Stamp the version that produced this install, for drift detection on the next run.
-Set-Content -Path (Join-Path $Target '.forge-version') -Value $forgeVersion
+Set-Content -Path (Join-Path $Target '.codeforge/version') -Value $forgeVersion
 
-# --- MANAGED: workflow state template (in shared/) ---
-Copy-Item (Join-Path $Payload 'shared/state.template.md') (Join-Path $Target 'shared/state.template.md') -Force
+# --- MANAGED: workflow state template (in .codeforge/) ---
+Copy-Item (Join-Path $Payload 'codeforge/state.template.md') (Join-Path $Target '.codeforge/state.template.md') -Force
 
-# --- MANAGED: framework shared/scripts/ (agent-invoked Tier-B helpers, e.g. check-gates) ---
-$scriptsSrc = Join-Path $Payload 'shared/scripts'
+# --- MANAGED: framework .codeforge/scripts/ (agent-invoked Tier-B helpers, e.g. check-gates) ---
+$scriptsSrc = Join-Path $Payload 'codeforge/scripts'
 if (Test-Path -LiteralPath $scriptsSrc -PathType Container) {
-  New-Item -ItemType Directory -Force -Path (Join-Path $Target 'shared/scripts') | Out-Null
+  New-Item -ItemType Directory -Force -Path (Join-Path $Target '.codeforge/scripts') | Out-Null
   foreach ($f in Get-ChildItem -File $scriptsSrc) {
-    Copy-Item $f.FullName (Join-Path $Target "shared/scripts/$($f.Name)") -Force
+    Copy-Item $f.FullName (Join-Path $Target ".codeforge/scripts/$($f.Name)") -Force
   }
 }
 
@@ -221,7 +242,7 @@ if (-not (Test-Path $tChangelog)) { Copy-Item (Join-Path $Payload 'docs/CHANGELO
 # CASE-SENSITIVE c-variants (-ceq/-clike/-cmatch/-ccontains/-creplace): PowerShell's defaults are
 # case-insensitive, so `Gate profile: LIGHT` would be accepted here and rejected by the POSIX twin,
 # and the profile written through would then be one `check-gates` exits 3 on. PROJECT.md is the source of truth
-# because it is never clobbered; shared/rules/models.md and shared/state.template.md are refreshed
+# because it is never clobbered; .codeforge/rules/models.md and .codeforge/state.template.md are refreshed
 # by name on every install, so a value written only there is silently reset by `--upgrade`.
 # Only value lines are substituted. Missing section / line / unparseable value => no-op.
 if (Test-Path $tProject) {
@@ -245,7 +266,7 @@ if (Test-Path $tProject) {
   $prof = if ($profHit -cmatch '^\s*Gate profile:\s*([A-Za-z][A-Za-z-]*)') { $Matches[1] } else { '' }
 
   # models.md: swap the two value lines inside the managed block, in place.
-  $mm = Join-Path $Target 'shared/rules/models.md'
+  $mm = Join-Path $Target '.codeforge/rules/models.md'
   if ($revLine -and $couLine -and (Test-Path $mm)) {
     $out = New-Object System.Collections.Generic.List[string]
     $inBlk = $false
@@ -257,19 +278,19 @@ if (Test-Path $tProject) {
       $out.Add($line)
     }
     Set-Content -Path $mm -Value $out
-    Write-Host "  = review policy applied from PROJECT.md -> shared/rules/models.md"
+    Write-Host "  = review policy applied from PROJECT.md -> .codeforge/rules/models.md"
   }
 
   # state.template.md: only a profile check-gates accepts may be written through, or the user gets a
   # template that exits 3 ("unknown gate profile") against its own validator.
-  $st = Join-Path $Target 'shared/state.template.md'
+  $st = Join-Path $Target '.codeforge/state.template.md'
   if ($prof -and @('standard', 'light') -ccontains $prof) {
     if (Test-Path $st) {
       $stLines = Get-Content -LiteralPath $st | ForEach-Object {
         $_ -creplace '(\*\*Profile:\*\*\s*)[A-Za-z][A-Za-z-]*', ('${1}' + $prof)
       }
       Set-Content -Path $st -Value $stLines
-      Write-Host "  = gate profile applied from PROJECT.md -> shared/state.template.md ($prof)"
+      Write-Host "  = gate profile applied from PROJECT.md -> .codeforge/state.template.md ($prof)"
     }
   } elseif ($prof) {
     Write-Host "  ! PROJECT.md 'Gate profile: $prof' is not 'standard' or 'light' — keeping the shipped default"
@@ -338,19 +359,19 @@ if (-not (Select-String -Quiet -SimpleMatch $marker $gi)) {
 
 # codeforge (local state — do not commit)
 .DS_Store
-.workflow/
+.codeforge/workflow/
 .claude/settings.local.json
 "@
   Add-Content -Path $gi -Value $block
 }
 
-# Ensure .workflow/ is ignored (idempotent, exact-line), independent of the marker block.
+# Ensure .codeforge/workflow/ is ignored (idempotent, exact-line), independent of the marker block.
 $giPath = Join-Path $Target '.gitignore'
 $giLines = if (Test-Path $giPath) { Get-Content -Path $giPath } else { @() }
 # Exact, case-SENSITIVE, whole-line match (mirrors the sh side's `grep -qxF`) — NOT .Trim()/-eq,
-# which would let ` .workflow/` or `.WORKFLOW/` falsely suppress the required entry.
-if (-not ($giLines | Where-Object { $_ -ceq '.workflow/' })) {
-  Add-Content -Path $giPath -Value '.workflow/'
+# which would let ` .codeforge/workflow/` or `.WORKFLOW/` falsely suppress the required entry.
+if (-not ($giLines | Where-Object { $_ -ceq '.codeforge/workflow/' })) {
+  Add-Content -Path $giPath -Value '.codeforge/workflow/'
 }
 
 # --- warn if the generated config lacks the forge push/PR gate ---
@@ -371,7 +392,7 @@ foreach ($p in '.claude/skills', '.agents/skills') {
     Write-Host "  ! discovery FAILED: $p was not generated"; $ok = $false
   }
 }
-foreach ($f in 'AGENTS.md', '.claude/settings.json', '.codex/config.toml', 'opencode.json', 'shared/state.template.md') {
+foreach ($f in 'AGENTS.md', '.claude/settings.json', '.codex/config.toml', 'opencode.json', '.codeforge/state.template.md') {
   if (-not (Test-Path (Join-Path $Target $f))) { Write-Host "  ! FAILED: $f was not generated"; $ok = $false }
 }
 if (-not $ok) {

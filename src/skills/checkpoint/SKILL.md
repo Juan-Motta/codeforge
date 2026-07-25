@@ -6,7 +6,7 @@ description: Write a clean session handoff to CONTINUITY.md before closing a ses
 # checkpoint
 
 Capture enough that a fresh session (or a different engine) can pick up without you
-re-explaining. See `shared/rules/continuity.md`.
+re-explaining. See `.codeforge/rules/continuity.md`.
 
 ## 1. Assess current state
 
@@ -22,7 +22,7 @@ handoff notes (where we are, why, key context/decisions). Keep it tiny.
 
 ## 3. Sync the workflow pointer
 
-If a workflow is active, make sure `.workflow/state.md` is current too, and that
+If a workflow is active, make sure `.codeforge/workflow/state.md` is current too, and that
 `CONTINUITY.md`'s "Active workflow" points to it. Don't copy state.md's content into
 `CONTINUITY.md` — just point.
 

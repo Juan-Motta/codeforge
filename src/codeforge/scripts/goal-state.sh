@@ -7,21 +7,21 @@ section() { awk -v h="$1" '{ sub(/\r$/,"") } $0=="## " h {i=1;next} /^## / {i=0}
 cmd="${1:-}"
 case "$cmd" in
   field)
-    name="${2:-}"; file="${3:-.workflow/state.md}"; [ -f "$file" ] || { printf ''; exit 0; }
+    name="${2:-}"; file="${3:-.codeforge/workflow/state.md}"; [ -f "$file" ] || { printf ''; exit 0; }
     section "/goal loop" "$file" | awk -v k="$name" '
       $0 ~ ("^\\| *" k " *\\|") { s=$0; sub(/^\| *[^|]* *\| */,"",s); sub(/ *\|.*$/,"",s); print s; exit }'
     ;;
   round-count)
-    loop="${2:-}"; file="${3:-.workflow/state.md}"; [ -f "$file" ] || { echo 0; exit 0; }
+    loop="${2:-}"; file="${3:-.codeforge/workflow/state.md}"; [ -f "$file" ] || { echo 0; exit 0; }
     section "Review log" "$file" | grep -c -e "loop=$loop .*kind=round" 2>/dev/null | head -1 || echo 0
     ;;
   ship-red-count)
-    file="${2:-.workflow/state.md}"; [ -f "$file" ] || { echo 0; exit 0; }
+    file="${2:-.codeforge/workflow/state.md}"; [ -f "$file" ] || { echo 0; exit 0; }
     n=$(section "Attempts" "$file" | sed -n 's/.*ATTEMPT ship-red — n=\([0-9][0-9]*\).*/\1/p' | tail -1)
     [ -n "$n" ] && echo "$n" || echo 0
     ;;
   ship-red-bump)
-    file="${2:-.workflow/state.md}"
+    file="${2:-.codeforge/workflow/state.md}"
     cur=$(sh "$0" ship-red-count "$file"); next=$((cur + 1))
     ts=$(date -u +%Y-%m-%dT%H:%M:%SZ); line="- ATTEMPT ship-red — n=$next — ts=$ts"
     [ -f "$file" ] || : > "$file"

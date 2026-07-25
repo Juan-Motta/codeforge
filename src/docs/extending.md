@@ -29,7 +29,7 @@ Examples:
 - "Verify by exercising it."
 - A lightweight multi-engine council (a skill that orchestrates calling several engines
   and synthesizing).
-- Checklists and keeping `.workflow/state.md` updated.
+- Checklists and keeping `.codeforge/workflow/state.md` updated.
 
 **Cost:** the agent does it *because instructed*. Nothing prevents non-compliance.
 
@@ -43,14 +43,14 @@ Examples:
    description: <1–1024 chars; when to use it>
    ---
    ```
-   then the steps, referencing `shared/rules/*` and `.workflow/state.md`.
+   then the steps, referencing `.codeforge/rules/*` and `.codeforge/workflow/state.md`.
 3. Run `./sync.sh` (or `sync.ps1` on Windows). It regenerates `.claude/skills` (Claude Code +
    OpenCode) and `.agents/skills` (Codex + OpenCode) from `skills/` — a full mirror (deletions
    propagate), so every engine discovers the skill. No further config.
 
 **Framework vs project-own skills:** `skills/` holds both. The installer's `--upgrade`
 refreshes only the **framework's own** skills (by name) and never deletes the rest — so a
-skill you add here survives upgrades. (Same for `shared/rules/`.) Give your own skills
+skill you add here survives upgrades. (Same for `.codeforge/rules/`.) Give your own skills
 names distinct from the framework's, or an upgrade will overwrite the collision.
 
 ---
@@ -63,7 +63,7 @@ runs **only when the agent chooses to call it**.
 
 Good fits:
 
-- A `.workflow/state.md` validator (are the required boxes checked?).
+- A `.codeforge/workflow/state.md` validator (are the required boxes checked?).
 - A reproducible git/drift check.
 - An artifact checker that *reports* (not blocks) whether a brief/evidence file exists.
 
@@ -82,7 +82,7 @@ so it means maintaining up to three implementations.
 
 Capabilities that require this tier:
 
-- **Conditional blocking** of commit/push/PR based on `.workflow/state.md` (the native
+- **Conditional blocking** of commit/push/PR based on `.codeforge/workflow/state.md` (the native
   `permission` gates only do "always ask", not "block *if* gates are unmet").
 - **Unbypassable evidence gate** / per-iteration clean evidence / a convergence breaker.
 - **A mandatory research gate** (cannot start design until the brief exists).
@@ -109,7 +109,7 @@ that can be quietly weakened — only once the repo is also fully configured per
 `docs/ci-templates/README.md` (CODEOWNERS on the workflow and test-defining files,
 dismiss-stale-approvals, strict/up-to-date checks or a merge queue), and even then it still
 depends on a human actually reading those diffs. Repo/org admins can still bypass branch
-protection unless you've configured otherwise. See `shared/rules/ship-gates.md` for the
+protection unless you've configured otherwise. See `.codeforge/rules/ship-gates.md` for the
 Verified/Attested/Advisory ladder.
 
 ---

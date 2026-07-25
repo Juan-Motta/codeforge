@@ -1,7 +1,7 @@
 # Codex-native options for codeforge (no scripts/hooks).
 # Best-effort ship prompt (NOT a hard gate): on-request asks when a command crosses the
 # sandbox boundary — it does NOT fire before every command, does NOT read
-# .workflow/state.md, and is bypassable. See shared/rules/ship-gates.md. Check the gate
+# .codeforge/workflow/state.md, and is bypassable. See .codeforge/rules/ship-gates.md. Check the gate
 # checklist yourself before approving a push/PR.
 
 approval_policy = "on-request"

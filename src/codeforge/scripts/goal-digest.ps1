@@ -23,7 +23,7 @@ function GitRawTo($file, [string[]]$gitArgs) {
 & git -C $repo rev-parse --git-dir *> $null; if ($LASTEXITCODE -ne 0) { Fail 'not a repo' }
 & git -C $repo cat-file -e "$Base^{commit}" *> $null; if ($LASTEXITCODE -ne 0) { Fail 'bad base' }
 
-$excl = @(':(exclude).workflow/*', ':(exclude)docs/e2e/reports/*', ':(exclude)CONTINUITY.md',
+$excl = @(':(exclude).codeforge/workflow/*', ':(exclude)docs/e2e/reports/*', ':(exclude)CONTINUITY.md',
           ':(exclude)docs/CHANGELOG.md', ':(exclude)VERSION')
 $diff = @('-C', $repo, '-c', 'core.quotepath=false', 'diff', '--full-index', '--no-ext-diff',
           '--no-textconv', '--default-prefix', '--no-renames', '--no-color')

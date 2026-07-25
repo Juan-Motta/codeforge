@@ -6,6 +6,42 @@ development log; it is **not** the seed shipped to installed projects (that live
 
 ## 0.6.0 — 2026-07-22
 
+- **BREAKING (installed layout): all framework machinery moved under a single `.codeforge/` dir.**
+  An install used to scatter 13 entries across the host project's root, four of which were pure
+  machinery: `shared/rules/`, `shared/scripts/`, `shared/state.template.md`, `.workflow/`,
+  `.forge-manifest` and `.forge-version`. A `shared/` directory in someone else's repo is both
+  presumptuous and collision-prone. They are now `.codeforge/{rules,scripts,state.template.md,
+  workflow/,manifest,version}`; the root is down to **11 entries**, and everything still there is
+  either engine-mandated (`.claude/`, `.agents/`, `.codex/`, `opencode.json`, `CLAUDE.md`,
+  `AGENTS.md` — each engine discovers these by fixed convention, so they cannot move),
+  project-owned (`PROJECT.md`, `CONTINUITY.md`), or `docs/`.
+  **`docs/` deliberately stays in the open.** ADRs, PRDs, plans, research and the CHANGELOG are
+  project knowledge, not framework state: GitHub renders `docs/`, ADR tooling expects it there, and
+  a CHANGELOG inside a dotfolder is wrong. Keeping it also left 79 path references untouched.
+  Mechanically this rewrote ~336 references across ~42 files (payload 158, `install.sh` 49,
+  `install.ps1` 39, `tests/smoke.sh` 31, `tools/` 138, `cli/` 9). The payload dir is `src/codeforge/`
+  **without** the dot — the installer adds it when copying, matching how `src/CLAUDE.md` and
+  `src/PROJECT.template.md` are already relocated on install.
+  **No migration**, by design (no real users yet): a target still on the old layout has its
+  `shared/`, `.workflow/`, `.forge-manifest` and `.forge-version` **removed** on the next install,
+  announced on stdout. That is hygiene, not compatibility — two competing copies of the rules with
+  no way to tell which one the agent reads is worse than either layout alone.
+  Three things this shook out, none of them mechanical:
+  1. **`.gitignore` must name `.codeforge/workflow/`, never `.codeforge/`.** A bare entry would
+     untrack the rules and scripts that have to ship with the project, leaving a fresh clone with no
+     machinery. Now asserted by `tools/test/installed-layout.test.mjs`.
+  2. **The linter's reference-integrity check was silently dead.** The new regex began with `\b`,
+     and a word boundary cannot exist between a space and the `.` of `.codeforge` — so it matched
+     nothing and the "0 errors" it reported meant "0 checks". Caught by a unit test that expected a
+     broken reference to fail; replaced with an explicit lookbehind, and verified discriminating by
+     breaking a real reference. It also needed a carve-out: `.codeforge/workflow/**` is runtime state
+     created from the template at workflow start, legitimately absent from the payload.
+  3. **`goal-digest`'s exclusion pathspec** had to move with it; had it kept excluding `.workflow/*`,
+     the digest would have started including volatile state and **no `/goal` certification would ever
+     match again** — with no error to show for it.
+  New `tools/test/installed-layout.test.mjs` (4 tests) pins the root entry set for both installers,
+  proves the machinery is committable while the workflow state is ignored, and checks the old-layout
+  cleanup. Nothing asserted the installed footprint before, which is precisely how it spread.
 - **`--upgrade` no longer eats the setup wizard's configuration (data loss).** The wizard wrote its
   review policy into `shared/rules/models.md` and its gate profile into `shared/state.template.md` —
   both **MANAGED**, i.e. refreshed by name on every install by a bare `cp`. So

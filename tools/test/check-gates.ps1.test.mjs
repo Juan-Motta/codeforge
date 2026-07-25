@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const script = join(repoRoot, 'src', 'shared', 'scripts', 'check-gates.ps1');
+const script = join(repoRoot, 'src', 'codeforge', 'scripts', 'check-gates.ps1');
 
 let hasPwsh = true;
 try { execFileSync('pwsh', ['-v'], { stdio: 'pipe' }); } catch { hasPwsh = false; }
@@ -20,8 +20,8 @@ function make(box, report) {
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 's');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -39,7 +39,7 @@ ${box}
   return dir;
 }
 function run(dir) {
-  try { execFileSync('pwsh', [script, '.workflow/state.md'], { cwd: dir, stdio: 'pipe' }); return 0; }
+  try { execFileSync('pwsh', [script, '.codeforge/workflow/state.md'], { cwd: dir, stdio: 'pipe' }); return 0; }
   catch (e) { return e.status; }
 }
 
@@ -73,8 +73,8 @@ test('ps1 parity: box checked + report git-add STAGED (not committed) on branch 
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'r.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/r.md');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -100,8 +100,8 @@ test('ps1 parity: named-path mismatch — box names ABSENT report, unrelated fre
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'other.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -126,8 +126,8 @@ test('ps1 parity: placeholder report path rejected even with an unrelated fresh 
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'other.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -153,8 +153,8 @@ test('ps1 parity: named report committed on the feature branch (base = main) + P
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'feat.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/feat.md'); git(dir, 'commit', '-qm', 'e2e report');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -182,8 +182,8 @@ test('ps1 parity: dev-based branch — inherited PASS on dev cannot satisfy the 
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'inherited.md'), 'VERDICT: PASS\n');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'dev inherited report');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -211,8 +211,8 @@ test('ps1 parity: no-base fail-safe — single branch, PRESENT+PASS → exit 0; 
       mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
       writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'feat.md'), 'VERDICT: PASS\n');
     }
-    mkdirSync(join(dir, '.workflow'), { recursive: true });
-    writeFileSync(join(dir, '.workflow', 'state.md'),
+    mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+    writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -245,8 +245,8 @@ test('ps1 parity: SYMLINK at the box-named path (external fabricated PASS) → e
   writeFileSync(join(parent, 'fabricated.md'), 'VERDICT: PASS\n');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   symlinkSync(join(parent, 'fabricated.md'), join(dir, 'docs', 'e2e', 'reports', 'feat.md'));
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -269,8 +269,8 @@ test('ps1 parity: path TRAVERSAL out of the repo (no base resolves) → exit 1',
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -295,8 +295,8 @@ test('ps1 parity: SUBDIR path under docs/e2e/reports/ → exit 1 (whitelist reje
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports', 'sub', 'dir'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'sub', 'dir', 'x.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -319,8 +319,8 @@ test('ps1 parity: identity — 6 checked boxes but NONE are the required gates �
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 's');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -353,8 +353,8 @@ test('ps1 parity: MULTI-REPORT line (two "(report:" groups) → exit 1 (ambiguou
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'real.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/real.md'); git(dir, 'commit', '-qm', 'e2e report');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -379,8 +379,8 @@ test('ps1 parity: Tests gate omitted, fresh PASS E2E report named tdd.md must NO
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'tdd.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -404,8 +404,8 @@ test('ps1 parity: lowercase "e2e verified" satisfies identity but STILL triggers
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 's');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
@@ -428,8 +428,8 @@ test('ps1 parity: light profile — 3 canonical gates → exit 0; "trivial" gate
     git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
     writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 's');
     git(dir, 'checkout', '-q', '-b', 'feat/x');
-    mkdirSync(join(dir, '.workflow'), { recursive: true });
-    writeFileSync(join(dir, '.workflow', 'state.md'),
+    mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+    writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** light
 ## Ship-gate checklist

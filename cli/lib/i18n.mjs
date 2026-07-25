@@ -26,7 +26,7 @@ const en = {
   },
   gates: {
     title: '⚒  Ship-gates',
-    subtitle: 'A checklist in .workflow/state.md must be complete before git push / PR. Profile sets how many gates are required (a default — each workflow can override).',
+    subtitle: 'A checklist in .codeforge/workflow/state.md must be complete before git push / PR. Profile sets how many gates are required (a default — each workflow can override).',
     standard: 'standard   6 gates · full features & bug fixes',
     light: 'light      3 gates · quick-fix / trivial changes',
   },
@@ -82,7 +82,7 @@ const es = {
   },
   gates: {
     title: '⚒  Ship-gates',
-    subtitle: 'Un checklist en .workflow/state.md debe estar completo antes de git push / PR. El perfil define cuántos gates se exigen (un valor por defecto — cada workflow puede cambiarlo).',
+    subtitle: 'Un checklist en .codeforge/workflow/state.md debe estar completo antes de git push / PR. El perfil define cuántos gates se exigen (un valor por defecto — cada workflow puede cambiarlo).',
     standard: 'standard   6 gates · features y bugfixes completos',
     light: 'light      3 gates · quick-fix / cambios triviales',
   },

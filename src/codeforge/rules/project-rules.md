@@ -2,7 +2,7 @@
 
 Two layers of rules apply to every session, both always-on:
 
-1. **Global baseline** — `CLAUDE.md` golden rules + `shared/rules/*`. The framework's
+1. **Global baseline** — `CLAUDE.md` golden rules + `.codeforge/rules/*`. The framework's
    discipline. Applies **always, without exception**.
 2. **Project rules** — `PROJECT.md` at the repo root (from `PROJECT.template.md`):
    **Persona · Project info · Variables · Special rules**. Project-specific and editable.

@@ -5,8 +5,10 @@
 .idea/
 .vscode/
 
-# Transient workflow state — the per-workflow checklist is local working state.
-.workflow/
+# Transient workflow state — the per-workflow checklist is local working state. Lives under
+# .codeforge/ since the consolidation; the rest of .codeforge/ (rules, scripts) IS committed, so
+# this must stay path-specific — a bare `.codeforge/` here would untrack the framework itself.
+.codeforge/workflow/
 
 # Node dev tooling (tools/) is dependency-free, but guard against stray installs.
 node_modules/

@@ -1,18 +1,18 @@
 # check-gates.ps1 — deterministic ship-gate checklist validator (Tier B).
 #
-# PowerShell parity of shared/scripts/check-gates.sh. Reads .workflow/state.md and
+# PowerShell parity of .codeforge/scripts/check-gates.sh. Reads .codeforge/workflow/state.md and
 # confirms every ship-gate box for the active profile is checked (or N/A).
 #
-#   pwsh shared/scripts/check-gates.ps1                 # reads .workflow/state.md
-#   pwsh shared/scripts/check-gates.ps1 path\to\state.md
+#   pwsh .codeforge/scripts/check-gates.ps1                 # reads .codeforge/workflow/state.md
+#   pwsh .codeforge/scripts/check-gates.ps1 path\to\state.md
 #
 # HONESTY: verifies the RECORD, not the underlying work — a checked box is an
-# attestation, not proof. See shared/rules/ship-gates.md (Verified / Attested /
+# attestation, not proof. See .codeforge/rules/ship-gates.md (Verified / Attested /
 # Advisory). Advisory (Tier B): it does not block a commit on its own.
 #
 # Exit codes: 0 = complete · 1 = unmet boxes · 3 = cannot read state/checklist.
 [CmdletBinding()]
-param([string]$StatePath = ".workflow/state.md")
+param([string]$StatePath = ".codeforge/workflow/state.md")
 
 $ErrorActionPreference = "Stop"
 # Parity with sh's masked git failures (`|| echo ""` / `2>$null`): explicitly set
@@ -22,7 +22,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
     [Console]::Error.WriteLine("check-gates: no state file at '$StatePath' — cannot verify gates.")
-    [Console]::Error.WriteLine("  Start a workflow (copy shared/state.template.md) before shipping.")
+    [Console]::Error.WriteLine("  Start a workflow (copy .codeforge/state.template.md) before shipping.")
     exit 3
 }
 
@@ -53,12 +53,12 @@ if ($total -eq 0) {
 }
 
 # Validate the checklist carries the REQUIRED gates for its profile (standard = 6, light = 3,
-# per shared/rules/ship-gates.md) — otherwise a state file that deletes OR renames gates reads
+# per .codeforge/rules/ship-gates.md) — otherwise a state file that deletes OR renames gates reads
 # green. Two layers: a required COUNT (cheap floor) and required gate IDENTITIES (below),
 # matched by a tolerant case-insensitive anchor per gate, anchored at the START of a box so
 # free-form trailing text (report path, "— N/A: <reason>", notes) cannot satisfy another gate's
 # anchor. Each $gates entry is "ANCHOR;label" (';' never appears inside an anchor). Anchors
-# mirror check-gates.sh and the canonical wording in shared/state.template.md / ship-gates.md.
+# mirror check-gates.sh and the canonical wording in .codeforge/state.template.md / ship-gates.md.
 $gates = @()
 $required = switch ($profile) {
     'standard' {
@@ -86,7 +86,7 @@ $required = switch ($profile) {
 }
 if ($total -lt $required) {
     [Console]::Error.WriteLine("check-gates: profile '$profile' requires $required gates but the checklist has only $total —")
-    [Console]::Error.WriteLine("  required ship-gate boxes are missing. Restore them from shared/state.template.md.")
+    [Console]::Error.WriteLine("  required ship-gate boxes are missing. Restore them from .codeforge/state.template.md.")
     exit 1
 }
 
@@ -121,7 +121,7 @@ if ($missing.Count -gt 0) {
     [Console]::Error.WriteLine("check-gates: profile '$profile' is missing required ship-gate(s):")
     foreach ($m in $missing) { [Console]::Error.WriteLine($m) }
     [Console]::Error.WriteLine("  The checklist has $total boxes but not the profile's canonical gates. Restore them")
-    [Console]::Error.WriteLine("  from shared/state.template.md (the box wording must name each required gate).")
+    [Console]::Error.WriteLine("  from .codeforge/state.template.md (the box wording must name each required gate).")
     exit 1
 }
 

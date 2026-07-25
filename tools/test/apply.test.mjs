@@ -8,10 +8,10 @@ import { applyModels, applyProfile, applyProject, applyClaudeAgents, applyExecut
 
 function scaffoldTarget() {
   const dir = mkdtempSync(join(tmpdir(), 'cf-apply-'));
-  mkdirSync(join(dir, 'shared', 'rules'), { recursive: true });
-  writeFileSync(join(dir, 'shared', 'rules', 'models.md'),
+  mkdirSync(join(dir, '.codeforge', 'rules'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge', 'rules', 'models.md'),
     '# Models\n<!-- codeforge:review-policy:start -->\nDefault reviewer(s): OLD\n<!-- codeforge:review-policy:end -->\n');
-  writeFileSync(join(dir, 'shared', 'state.template.md'), '- **Profile:** standard  <!-- comment -->\n');
+  writeFileSync(join(dir, '.codeforge', 'state.template.md'), '- **Profile:** standard  <!-- comment -->\n');
   writeFileSync(join(dir, 'PROJECT.md'), '## Special rules\n\n_(fill in)_\n');
   return dir;
 }
@@ -25,7 +25,7 @@ test('applyModels rewrites the managed block idempotently', () => {
   };
   applyModels(dir, answers);
   applyModels(dir, answers); // idempotent
-  const md = readFileSync(join(dir, 'shared', 'rules', 'models.md'), 'utf8');
+  const md = readFileSync(join(dir, '.codeforge', 'rules', 'models.md'), 'utf8');
   assert.match(md, /Default reviewer\(s\): codex/i);
   assert.match(md, /Council advisors:/);
   assert.match(md, /kimi-k3/);
@@ -36,7 +36,7 @@ test('applyModels rewrites the managed block idempotently', () => {
 test('applyProfile sets the profile in state.template.md', () => {
   const dir = scaffoldTarget();
   applyProfile(dir, { profile: 'light' });
-  const md = readFileSync(join(dir, 'shared', 'state.template.md'), 'utf8');
+  const md = readFileSync(join(dir, '.codeforge', 'state.template.md'), 'utf8');
   assert.match(md, /\*\*Profile:\*\* light/);
 });
 
