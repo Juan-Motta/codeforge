@@ -216,6 +216,66 @@ if (-not (Test-Path $tCont)) { Copy-Item (Join-Path $Payload 'CONTINUITY.templat
 $tChangelog = Join-Path $Target 'docs/CHANGELOG.md'
 if (-not (Test-Path $tChangelog)) { Copy-Item (Join-Path $Payload 'docs/CHANGELOG.md') $tChangelog }
 
+# --- re-render the wizard-owned values FROM PROJECT.md (project-owned) into the MANAGED files ---
+# Twin of the same block in install.sh — see the rationale there. All comparisons use the
+# CASE-SENSITIVE c-variants (-ceq/-clike/-cmatch/-ccontains/-creplace): PowerShell's defaults are
+# case-insensitive, so `Gate profile: LIGHT` would be accepted here and rejected by the POSIX twin,
+# and the profile written through would then be one `check-gates` exits 3 on. PROJECT.md is the source of truth
+# because it is never clobbered; shared/rules/models.md and shared/state.template.md are refreshed
+# by name on every install, so a value written only there is silently reset by `--upgrade`.
+# Only value lines are substituted. Missing section / line / unparseable value => no-op.
+if (Test-Path $tProject) {
+  # Body of '## Review policy' up to the next top-level heading (CRLF-tolerant).
+  $policy = @()
+  $inSec = $false
+  foreach ($raw in Get-Content -LiteralPath $tProject) {
+    $l = $raw -replace "`r$", ''
+    if ($l -ceq '## Review policy') { $inSec = $true; continue }
+    if ($inSec -and $l -clike '## *') { $inSec = $false }
+    if ($inSec) { $policy += $l }
+  }
+  $firstMatch = {
+    param($pattern)
+    $hit = $policy | Where-Object { $_ -cmatch $pattern } | Select-Object -First 1
+    if ($hit) { $hit -creplace '\s+$', '' } else { '' }
+  }
+  $revLine = & $firstMatch '^\s*Default reviewer\(s\):'
+  $couLine = & $firstMatch '^\s*Council advisors:'
+  $profHit = & $firstMatch '^\s*Gate profile:\s*[A-Za-z][A-Za-z-]*'
+  $prof = if ($profHit -cmatch '^\s*Gate profile:\s*([A-Za-z][A-Za-z-]*)') { $Matches[1] } else { '' }
+
+  # models.md: swap the two value lines inside the managed block, in place.
+  $mm = Join-Path $Target 'shared/rules/models.md'
+  if ($revLine -and $couLine -and (Test-Path $mm)) {
+    $out = New-Object System.Collections.Generic.List[string]
+    $inBlk = $false
+    foreach ($line in Get-Content -LiteralPath $mm) {
+      if ($line -cmatch 'codeforge:review-policy:start') { $inBlk = $true;  $out.Add($line); continue }
+      if ($line -cmatch 'codeforge:review-policy:end')   { $inBlk = $false; $out.Add($line); continue }
+      if ($inBlk -and $line -cmatch '^\s*Default reviewer\(s\):') { $out.Add($revLine); continue }
+      if ($inBlk -and $line -cmatch '^\s*Council advisors:')      { $out.Add($couLine); continue }
+      $out.Add($line)
+    }
+    Set-Content -Path $mm -Value $out
+    Write-Host "  = review policy applied from PROJECT.md -> shared/rules/models.md"
+  }
+
+  # state.template.md: only a profile check-gates accepts may be written through, or the user gets a
+  # template that exits 3 ("unknown gate profile") against its own validator.
+  $st = Join-Path $Target 'shared/state.template.md'
+  if ($prof -and @('standard', 'light') -ccontains $prof) {
+    if (Test-Path $st) {
+      $stLines = Get-Content -LiteralPath $st | ForEach-Object {
+        $_ -creplace '(\*\*Profile:\*\*\s*)[A-Za-z][A-Za-z-]*', ('${1}' + $prof)
+      }
+      Set-Content -Path $st -Value $stLines
+      Write-Host "  = gate profile applied from PROJECT.md -> shared/state.template.md ($prof)"
+    }
+  } elseif ($prof) {
+    Write-Host "  ! PROJECT.md 'Gate profile: $prof' is not 'standard' or 'light' — keeping the shipped default"
+  }
+}
+
 # --- back up any pre-existing, NON-forge per-engine skills dir before sync overwrites it ---
 foreach ($eng in '.claude', '.agents') {
   $sd = Join-Path $Target "$eng/skills"

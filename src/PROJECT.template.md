@@ -26,6 +26,18 @@
 
 - <rule>
 
+## Review policy
+
+<!-- Managed by the codeforge setup wizard — and the SOURCE OF TRUTH for these three values.
+     PROJECT.md is project-owned, so it survives `--upgrade`; `shared/rules/models.md` and
+     `shared/state.template.md` are MANAGED (refreshed by name on every install), so a value
+     written only there is silently reset. The installers re-render both FROM this section on
+     every run. Edit here, or re-run the wizard. See `shared/rules/project-rules.md`. -->
+
+Default reviewer(s): Codex (`gpt-5.6-sol`, xhigh)
+Council advisors: all three (max diversity)
+Gate profile: standard
+
 ## Execution
 
 <How the driver runs a multi-task plan. Managed by the codeforge setup wizard — see

@@ -5,18 +5,48 @@ import { join } from 'node:path';
 const START = '<!-- codeforge:review-policy:start -->';
 const END = '<!-- codeforge:review-policy:end -->';
 
-function renderReviewBlock(answers) {
+// The three value lines the wizard owns. PROJECT.md § Review policy is their source of truth
+// (project-owned → survives `--upgrade`); models.md / state.template.md are DERIVED, and the
+// installers re-render them from PROJECT.md on every run. Keep these key strings in sync with the
+// installers' readers (install.sh / install.ps1) — tools/test/wizard-config-upgrade.test.mjs
+// exercises the round trip through both.
+const KEY_REVIEWERS = 'Default reviewer(s):';
+const KEY_COUNCIL = 'Council advisors:';
+const KEY_PROFILE = 'Gate profile:';
+
+function engineLabeller(answers) {
   const models = answers.models || {};
   const label = (en) => {
     const m = models[en];
     return m ? `${en} (\`${m.model}\`${m.effort ? ' · ' + m.effort : ''})` : en;
   };
-  const list = (engines) => (engines && engines.length ? engines.map(label).join(', ') : 'none');
-  const lines = [START, '<!-- Managed by the codeforge setup wizard. Edit here or re-run the wizard. -->'];
-  lines.push(`Default reviewer(s): ${list(answers.reviewers)}`);
-  lines.push(`Council advisors: ${list(answers.council)}`);
-  lines.push(END);
+  return (engines) => (engines && engines.length ? engines.map(label).join(', ') : 'none');
+}
+
+function renderReviewBlock(answers) {
+  const list = engineLabeller(answers);
+  const lines = [
+    START,
+    '<!-- DERIVED — do not edit. Re-rendered by the installers from `PROJECT.md` § Review policy,',
+    "     which is project-owned and survives `--upgrade`. Editing here is lost on the next install. -->",
+    `${KEY_REVIEWERS} ${list(answers.reviewers)}`,
+    `${KEY_COUNCIL} ${list(answers.council)}`,
+    END,
+  ];
   return lines.join('\n');
+}
+
+// Replace a `Key: value` line in-place, or append it if absent. Comment lines and ordering of
+// everything else are preserved, so the section's explanatory comment survives repeated wizard
+// runs (a whole-body replace would drop it).
+function upsertKeyLine(lines, key, value) {
+  if (value === undefined || value === null) return lines;
+  const at = lines.findIndex((l) => l.trimStart().startsWith(key));
+  const rendered = `${key} ${value}`;
+  if (at === -1) return [...lines, rendered];
+  const next = [...lines];
+  next[at] = rendered;
+  return next;
 }
 
 function assertExists(path) {
@@ -127,7 +157,45 @@ export function applyExecution(targetDir, answers) {
   writeFileSync(path, md);
 }
 
+// Persist the wizard's review policy into PROJECT.md § Review policy — the source of truth the
+// installers re-render `shared/rules/models.md` and `shared/state.template.md` from. Same reason
+// as applyExecution: PROJECT.md is project-owned and survives `--upgrade`, whereas anything
+// written only into shared/** is overwritten by name on the next install.
+//
+// An absent answer leaves the existing line alone rather than blanking it, so a partial wizard run
+// (or a future wizard that stops asking one of these) cannot silently drop a team's choice.
+export function applyReviewPolicy(targetDir, answers) {
+  const path = join(targetDir, 'PROJECT.md');
+  if (!existsSync(path)) return;
+  const list = engineLabeller(answers);
+  const md = readFileSync(path, 'utf8');
+
+  const heading = '## Review policy';
+  const startIdx = md.indexOf(heading);
+  const body = (() => {
+    if (startIdx === -1) return [];
+    const searchFrom = startIdx + heading.length;
+    const rest = md.slice(searchFrom);
+    const nextRel = rest.search(/\n## /);
+    const raw = nextRel === -1 ? md.slice(searchFrom) : md.slice(searchFrom, searchFrom + nextRel);
+    return raw.replace(/^\n+/, '').replace(/\n+$/, '').split('\n');
+  })();
+
+  let lines = body;
+  if (answers.reviewers) lines = upsertKeyLine(lines, KEY_REVIEWERS, list(answers.reviewers));
+  if (answers.council) lines = upsertKeyLine(lines, KEY_COUNCIL, list(answers.council));
+  if (answers.profile) lines = upsertKeyLine(lines, KEY_PROFILE, answers.profile);
+
+  const bodyText = lines.join('\n');
+  const next = startIdx === -1
+    ? `${md.replace(/\s*$/, '')}\n\n${heading}\n\n${bodyText}\n`
+    : replaceSection(md, heading, bodyText);
+  writeFileSync(path, next);
+}
+
 export function applyAll(targetDir, answers) {
+  // PROJECT.md first: it is the source of truth, and the derived renders below must agree with it.
+  applyReviewPolicy(targetDir, answers);
   applyModels(targetDir, answers);
   applyProfile(targetDir, answers);
   applyProject(targetDir, answers);
