@@ -19,7 +19,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { mkdtempSync, readFileSync, writeFileSync, rmSync, existsSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { execFileSync } from 'node:child_process';
 
@@ -210,7 +210,9 @@ test('install.ps1 --upgrade re-renders the managed files from PROJECT.md (parity
 });
 
 test('the wizard writes its answers into PROJECT.md, not only into the managed files', async () => {
-  const { applyAll } = await import(join(REPO, 'cli', 'lib', 'apply.mjs'));
+  // pathToFileURL is required, not cosmetic: on Windows a bare absolute path ('D:\\...') is not a
+  // valid ESM specifier and the import throws ERR_UNSUPPORTED_ESM_URL_SCHEME.
+  const { applyAll } = await import(pathToFileURL(join(REPO, 'cli', 'lib', 'apply.mjs')).href);
   const target = freshTarget('cf-wiz-apply-');
   try {
     install(target);

@@ -125,9 +125,21 @@ budget.
    `--upgrade ⇒ FORCE` footgun; the problem is the flag lies about what it does.)
 8. **No macOS CI job**, while shipping a POSIX `install.sh`. macOS ships bash 3.2 — exactly the class
    of bug that breaks `gentle-ai` today (`declare: -A: invalid option`).
-9. CRLF drift between the sh/ps1 manifest writers (`Set-Content` → CRLF), which then makes
-   `grep -qxF` / `grep -q '^localsettings:managed$'` fail on POSIX. Only bites mixed-OS teams; not
-   covered because `smoke.sh` doesn't run in the Windows job.
+9. **CRLF is an untreated class, and it turned CI red on the first push of this work.** There is no
+   `.gitattributes` in the repo, so a Windows checkout gets CRLF for every text file. Two concrete
+   consequences: (a) the `runScripts` extractor in `publish-workflow.test.mjs` found **0** `run:`
+   scripts under CRLF instead of 9, silently turning the injection guard into a no-op on the Windows
+   job — fixed by normalising inside the test; (b) the pre-existing drift between the sh/ps1 manifest
+   writers (`Set-Content` → CRLF) makes `grep -qxF` and `grep -q '^localsettings:managed$'` fail on
+   POSIX for a mixed-OS team, which is still unfixed.
+   **Recommended root-cause fix (not applied — decide first):** add `.gitattributes` with
+   `* text=auto eol=lf` so Windows checkouts get LF. That removes the whole class rather than each
+   symptom. `claude-codex-forge` did exactly this after the same failure mode (a CRLF made an
+   `^## Workflow$` anchor stop matching, which silently skipped **every** ship gate). Risk is low —
+   the repo's sh readers already strip `\r` defensively, and the runtime-generated-file tests that do
+   assert CRLF (`install-gitignore.test.mjs`) are about files written by `Add-Content` at install
+   time, not checked-in ones — but it does change what Windows developers see on disk, so it is the
+   owner's call.
 
 **Doctrine gaps (gap analysis §3, all cheap, all pure markdown):**
 
@@ -233,3 +245,10 @@ skipping; don't assume a green run on a machine without it means parity holds.
   *explaining the rule*. Strip comments, or anchor to `run:`.
 - **Re-run the suite immediately after every structural edit.** One rewrite of the `install.sh` block
   broke three passing tests; catching it in the same step is what kept it from compounding.
+- **A green local run says nothing about Windows.** The first push of this work turned `dev` red on
+  the Windows job while every check passed on macOS, twice over: a CRLF checkout made a line-splitting
+  extractor return zero matches (§5.9), and `await import(join(REPO, ...))` throws
+  `ERR_UNSUPPORTED_ESM_URL_SCHEME` on Windows because `D:\...` is not a valid ESM specifier — use
+  `pathToFileURL(...).href`. Both were caught only by CI. When touching a test that splits lines or
+  imports by path, verify against a CRLF copy locally (`sed`/python to convert, run, restore) before
+  pushing; `pwsh` on macOS does **not** reproduce Windows path or newline semantics.
