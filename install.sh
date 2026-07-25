@@ -211,6 +211,104 @@ fi
 [ -f "$TARGET/CONTINUITY.md" ] || cp "$PAYLOAD/CONTINUITY.template.md" "$TARGET/CONTINUITY.md"
 [ -f "$TARGET/docs/CHANGELOG.md" ] || cp "$PAYLOAD/docs/CHANGELOG.md" "$TARGET/docs/CHANGELOG.md"
 
+# --- re-render the wizard-owned values FROM PROJECT.md (project-owned) into the MANAGED files ---
+# The wizard's review policy and gate profile used to be written straight into
+# shared/rules/models.md and shared/state.template.md, which the copy loops above overwrite by name
+# — so `--upgrade` silently reset a team's reviewer and profile to the shipped defaults, with no
+# backup, and (because --upgrade skips the wizard) nothing reapplied them. PROJECT.md is
+# project-owned and never clobbered, so it is the SOURCE OF TRUTH and those two are DERIVED.
+# Only value lines are substituted, so the section's comments survive. A missing section, a missing
+# line, an unparseable profile, or a malformed managed block is a NO-OP that keeps the shipped
+# default — never a partial write.
+
+# Atomic replace of $1 from stdin. The temp is created by mktemp INSIDE the destination directory
+# rather than at a predictable "$1.tmp": we install into repos we did not create, and a pre-planted
+# symlink at that predictable path would make the redirection write through it to a file outside the
+# target. Any failure is fatal, so no caller can print "applied" after a write that did not happen.
+forge_atomic_write() {
+  _aw_dst="$1"; _aw_dir=$(dirname "$_aw_dst")
+  _aw_tmp=$(mktemp "$_aw_dir/.forge-render.XXXXXX") || { echo "install: cannot create a temp file in $_aw_dir" >&2; exit 1; }
+  if ! cat > "$_aw_tmp"; then rm -f "$_aw_tmp"; echo "install: failed writing $_aw_dst" >&2; exit 1; fi
+  # mktemp creates 0600; these are framework-owned markdown docs, world-readable like the payload.
+  chmod 644 "$_aw_tmp" || { rm -f "$_aw_tmp"; echo "install: failed setting mode on $_aw_dst" >&2; exit 1; }
+  mv "$_aw_tmp" "$_aw_dst" || { rm -f "$_aw_tmp"; echo "install: failed replacing $_aw_dst" >&2; exit 1; }
+}
+
+# No migration for targets predating this section: reinstall from scratch to adopt it. Say so out
+# loud rather than no-opping silently, since the symptom otherwise looks like the bug this fixes.
+if [ -f "$TARGET/PROJECT.md" ] && ! grep -q '^## Review policy[[:space:]]*$' "$TARGET/PROJECT.md" 2>/dev/null; then
+  echo "  ~ PROJECT.md has no '## Review policy' section — the shipped defaults stay in effect."
+  echo "    Add the section (see src/PROJECT.template.md) or reinstall the target to adopt it."
+fi
+
+if [ -f "$TARGET/PROJECT.md" ]; then
+  # Body of the FIRST '## Review policy' section only (CRLF-tolerant). A duplicated heading must not
+  # concatenate two bodies and mix a reviewer from one with a profile from the other.
+  policy=$(awk '{ sub(/\r$/,"") }
+    /^## Review policy[[:space:]]*$/ { if (!seen) { seen=1; f=1; next } }
+    f && /^## / { f=0 }
+    f { print }' "$TARGET/PROJECT.md")
+  _pol_count=$(grep -c '^## Review policy[[:space:]]*$' "$TARGET/PROJECT.md" || true)
+  [ "${_pol_count:-0}" -le 1 ] || echo "  ! PROJECT.md has $_pol_count '## Review policy' sections — using the first"
+
+  # First match wins, `exit` instead of `head` so nothing can die on SIGPIPE (141) under `pipefail`
+  # after the managed files were already replaced. The key is matched as a LITERAL PREFIX via
+  # index(), not as a dynamic regex: `awk -v` applies escape processing, so a key written
+  # `Default reviewer\(s\):` arrives as `Default reviewer(s):` and the parens become a capture
+  # group that no longer matches the real line — which is exactly how this returned empty once.
+  pol_line() {
+    printf '%s\n' "$policy" | awk -v k="$1" '
+      { line = $0; sub(/^[[:space:]]+/, "", line) }
+      index(line, k) == 1 { sub(/[[:space:]]+$/, "", line); print line; exit }'
+  }
+  rev_line=$(pol_line 'Default reviewer(s):')
+  cou_line=$(pol_line 'Council advisors:')
+  prof=$(printf '%s\n' "$policy" | awk 'match($0, /^[[:space:]]*Gate profile:[[:space:]]*[A-Za-z][A-Za-z-]*/) {
+    s = substr($0, RSTART, RLENGTH); sub(/.*Gate profile:[[:space:]]*/, "", s); print s; exit }')
+
+  # models.md: substitute each present key INDEPENDENTLY inside the managed block. Requiring both
+  # would discard a valid reviewer just because the council line was missing.
+  mm="$TARGET/shared/rules/models.md"
+  if { [ -n "$rev_line" ] || [ -n "$cou_line" ]; } && [ -f "$mm" ]; then
+    # Exactly one well-ordered marker pair, or skip: an extra start would leave the in-block state
+    # active to EOF, and a missing pair would report success while changing nothing.
+    _mk=$(awk '/codeforge:review-policy:start/ { s++; if (!f) f=NR }
+               /codeforge:review-policy:end/   { e++; if (!l) l=NR }
+               END { printf "%d %d %d %d", s+0, e+0, f+0, l+0 }' "$mm")
+    set -- $_mk
+    if [ "$1" = 1 ] && [ "$2" = 1 ] && [ "$3" -lt "$4" ]; then
+      # Values pass through the ENVIRONMENT, not `awk -v`: -v applies escape-sequence processing, so
+      # a hand-edited label containing `C:\tmp\new` would become a TAB plus a line break and split
+      # the file. ENVIRON[] is literal. The profile is metacharacter-proof by a different route —
+      # an allowlist before it ever reaches sed.
+      REV_LINE="$rev_line" COU_LINE="$cou_line" awk '
+        /codeforge:review-policy:start/ { inblk=1; print; next }
+        /codeforge:review-policy:end/   { inblk=0; print; next }
+        inblk && /^[[:space:]]*Default reviewer\(s\):/ { if (ENVIRON["REV_LINE"] != "") { print ENVIRON["REV_LINE"]; next } }
+        inblk && /^[[:space:]]*Council advisors:/      { if (ENVIRON["COU_LINE"] != "") { print ENVIRON["COU_LINE"]; next } }
+        { print }
+      ' "$mm" | forge_atomic_write "$mm"
+      echo "  = review policy applied from PROJECT.md -> shared/rules/models.md"
+    else
+      echo "  ! shared/rules/models.md has a malformed review-policy marker pair — left untouched"
+    fi
+  fi
+
+  # state.template.md: only a profile check-gates accepts may be written through, or the user gets a
+  # template that exits 3 ("unknown gate profile") against its own validator. Case-sensitive on
+  # purpose, so `LIGHT` is rejected here exactly as install.ps1 rejects it.
+  st="$TARGET/shared/state.template.md"
+  case "$prof" in
+    standard|light)
+      if [ -f "$st" ]; then
+        sed "s/\(\*\*Profile:\*\*[[:space:]]*\)[A-Za-z][A-Za-z-]*/\1$prof/" "$st" | forge_atomic_write "$st"
+        echo "  = gate profile applied from PROJECT.md -> shared/state.template.md ($prof)"
+      fi ;;
+    "") : ;;
+    *) echo "  ! PROJECT.md 'Gate profile: $prof' is not 'standard' or 'light' — keeping the shipped default" ;;
+  esac
+fi
+
 # --- back up any pre-existing, NON-forge per-engine skills dir before sync overwrites it ---
 # (forge-generated dirs carry a .forge-generated marker; a dir without it is the user's own,
 #  so we never wipe a user's skills — even one coincidentally named new-feature.)

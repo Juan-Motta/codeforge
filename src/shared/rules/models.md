@@ -17,8 +17,10 @@ with — not pinned by this project.
 | **OpenCode** | `opencode-go/glm-5.2` | default | `opencode run -m opencode-go/glm-5.2 "<prompt>"` |
 
 <!-- codeforge:review-policy:start -->
-<!-- Managed by the codeforge setup wizard. Edit here or re-run the wizard. -->
+<!-- DERIVED — do not edit. Re-rendered by the installers from `PROJECT.md` § Review policy,
+     which is project-owned and survives `--upgrade`. Editing here is lost on the next install. -->
 Default reviewer(s): Codex (`gpt-5.6-sol`, xhigh)
+Council advisors: all three (max diversity)
 <!-- codeforge:review-policy:end -->
 
 Same model/effort per engine regardless of role — the role only decides **which
@@ -29,7 +31,7 @@ engine(s)** to use:
 | **Driver** (implementation / TDD) | the CLI you open (not pinned) |
 | **Reviewer** (design + code review) | the non-driver engine |
 | **Research** (when delegated) | a non-driver, web/synthesis-capable engine |
-| **Council advisors** | all three (max diversity) |
+| **Council advisors** | per the review policy above (default: all three, max diversity) |
 
 ## Running these from an agent (non-interactive)
 
