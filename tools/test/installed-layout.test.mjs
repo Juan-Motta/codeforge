@@ -8,7 +8,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -94,6 +94,27 @@ test('the framework machinery is all under .codeforge/, and is committable', () 
       } catch { return false; }
     })();
     assert.equal(ignored, true, 'the volatile workflow state must be gitignored');
+  } finally {
+    rmSync(target, { recursive: true, force: true });
+  }
+});
+
+// ci.yml's Windows job asserts a hardcoded list of "runtime files" that must exist after an install.
+// Nothing covered that list, so it drifted: it still demanded `.forge-version` after the path moved
+// to `.codeforge/version`, and the only signal was a red Windows job — invisible on a dev machine
+// where that step never runs. Pin it to reality here so the drift fails locally instead.
+test("the runtime files ci.yml asserts on Windows actually exist after an install", () => {
+  const ci = readFileSync(join(REPO, '.github', 'workflows', 'ci.yml'), 'utf8').replace(/\r\n/g, '\n');
+  const m = ci.match(/foreach \(\$f in ([^)]+)\) \{/);
+  assert.ok(m, "could not find ci.yml's runtime-file list — if the step was renamed, update this test");
+  const expected = [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1]);
+  assert.ok(expected.length >= 4, `expected a meaningful runtime-file list, got ${expected.length}`);
+
+  const target = freshTarget('cf-layout-ci-');
+  try {
+    execFileSync('bash', [join(REPO, 'install.sh'), target], { stdio: 'pipe' });
+    const missing = expected.filter((f) => !existsSync(join(target, f)));
+    assert.deepEqual(missing, [], `ci.yml asserts runtime files that an install does not produce: ${missing.join(', ')}`);
   } finally {
     rmSync(target, { recursive: true, force: true });
   }

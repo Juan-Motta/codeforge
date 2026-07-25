@@ -61,7 +61,7 @@ jobs:
           $t = Join-Path $env:RUNNER_TEMP 'ps'
           New-Item -ItemType Directory -Force -Path $t | Out-Null
           pwsh -NoProfile -File ./install.ps1 $t
-          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.forge-version','.claude/skills/new-feature/SKILL.md','.agents/skills/new-feature/SKILL.md') {
+          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.codeforge/version','.codeforge/rules/ship-gates.md','.codeforge/scripts/check-gates.ps1','.claude/skills/new-feature/SKILL.md','.agents/skills/new-feature/SKILL.md') {
             if (-not (Test-Path (Join-Path $t $f))) { throw "missing runtime file: $f" }
           }
       - name: npx wrapper translates flags and runs the PowerShell installer
