@@ -18,7 +18,7 @@ export default function Summary({ answers, onNext, lang }) {
   return e(Card, { title: s.title, footer },
     e(Box, { flexDirection: 'column' },
       e(Text, { color: theme.steelDim }, [s.target, e(Text, { key: 't', color: theme.text }, answers.target)]),
-      e(Text, { color: theme.text }, s.profileHooks(answers.profile, answers.withHooks)),
+      e(Text, { color: theme.text }, s.profile(answers.profile)),
       e(Text, { color: theme.text }, s.reviewers((answers.reviewers || []).join(', '))),
       e(Text, { color: theme.text }, s.council((answers.council || []).join(', '))),
       e(Text, { color: theme.text }, s.execution(

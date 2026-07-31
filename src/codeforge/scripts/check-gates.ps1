@@ -1,18 +1,18 @@
 # check-gates.ps1 — deterministic ship-gate checklist validator (Tier B).
 #
-# PowerShell parity of shared/scripts/check-gates.sh. Reads .workflow/state.md and
+# PowerShell parity of .codeforge/scripts/check-gates.sh. Reads .codeforge/workflow/state.md and
 # confirms every ship-gate box for the active profile is checked (or N/A).
 #
-#   pwsh shared/scripts/check-gates.ps1                 # reads .workflow/state.md
-#   pwsh shared/scripts/check-gates.ps1 path\to\state.md
+#   pwsh .codeforge/scripts/check-gates.ps1                 # reads .codeforge/workflow/state.md
+#   pwsh .codeforge/scripts/check-gates.ps1 path\to\state.md
 #
 # HONESTY: verifies the RECORD, not the underlying work — a checked box is an
-# attestation, not proof. See shared/rules/ship-gates.md (Verified / Attested /
+# attestation, not proof. See .codeforge/rules/ship-gates.md (Verified / Attested /
 # Advisory). Advisory (Tier B): it does not block a commit on its own.
 #
 # Exit codes: 0 = complete · 1 = unmet boxes · 3 = cannot read state/checklist.
 [CmdletBinding()]
-param([string]$StatePath = ".workflow/state.md")
+param([string]$StatePath = ".codeforge/workflow/state.md")
 
 $ErrorActionPreference = "Stop"
 # Parity with sh's masked git failures (`|| echo ""` / `2>$null`): explicitly set
@@ -22,7 +22,7 @@ $PSNativeCommandUseErrorActionPreference = $false
 
 if (-not (Test-Path -LiteralPath $StatePath -PathType Leaf)) {
     [Console]::Error.WriteLine("check-gates: no state file at '$StatePath' — cannot verify gates.")
-    [Console]::Error.WriteLine("  Start a workflow (copy shared/state.template.md) before shipping.")
+    [Console]::Error.WriteLine("  Start a workflow (copy .codeforge/state.template.md) before shipping.")
     exit 3
 }
 
@@ -37,11 +37,12 @@ foreach ($line in $lines) {
 $inList = $false
 $total = 0
 $unmetLines = @()
+$boxLines = @()
 foreach ($line in $lines) {
     if ($line -match '^##\s+Ship-gate checklist') { $inList = $true; continue }
     elseif ($line -match '^##\s')                 { $inList = $false }
     if (-not $inList) { continue }
-    if ($line -match '^- \[[ xX]\]') { $total++ }
+    if ($line -match '^- \[[ xX]\]') { $total++; $boxLines += $line }
     if ($line -match '^- \[ \]')     { $unmetLines += ("  " + [char]0x2717 + $line.Substring(5)) }
 }
 
@@ -52,10 +53,31 @@ if ($total -eq 0) {
 }
 
 # Validate the checklist carries the REQUIRED gates for its profile (standard = 6, light = 3,
-# per shared/rules/ship-gates.md) — otherwise a state file that deletes gates reads green.
+# per .codeforge/rules/ship-gates.md) — otherwise a state file that deletes OR renames gates reads
+# green. Two layers: a required COUNT (cheap floor) and required gate IDENTITIES (below),
+# matched by a tolerant case-insensitive anchor per gate, anchored at the START of a box so
+# free-form trailing text (report path, "— N/A: <reason>", notes) cannot satisfy another gate's
+# anchor. Each $gates entry is "ANCHOR;label" (';' never appears inside an anchor). Anchors
+# mirror check-gates.sh and the canonical wording in .codeforge/state.template.md / ship-gates.md.
+$gates = @()
 $required = switch ($profile) {
-    'standard' { 6; break }
-    'light'    { 3; break }
+    'standard' {
+        $gates = @(
+            'on .*feature branch;On a feature branch',
+            'plan .*review;Plan written and design-reviewed',
+            'tests?;Tests written (TDD) and passing',
+            'code review;Code review clean',
+            'e2e verified;E2E verified',
+            'state .*updated;State updated'
+        ); 6; break
+    }
+    'light' {
+        $gates = @(
+            'on .*feature branch;On a feature branch',
+            'change .*verified;Change verified',
+            'still trivial;Still trivial'
+        ); 3; break
+    }
     default {
         [Console]::Error.WriteLine("check-gates: unknown gate profile '$profile' — can't determine required gates.")
         [Console]::Error.WriteLine("  Set Profile to 'standard' or 'light' in the Active workflow section.")
@@ -64,7 +86,7 @@ $required = switch ($profile) {
 }
 if ($total -lt $required) {
     [Console]::Error.WriteLine("check-gates: profile '$profile' requires $required gates but the checklist has only $total —")
-    [Console]::Error.WriteLine("  required ship-gate boxes are missing. Restore them from shared/state.template.md.")
+    [Console]::Error.WriteLine("  required ship-gate boxes are missing. Restore them from .codeforge/state.template.md.")
     exit 1
 }
 
@@ -78,13 +100,38 @@ if ($unmet -gt 0) {
     exit 1
 }
 
+# Identity check: every required gate for the profile must be PRESENT as a box (all boxes are
+# checked at this point — the unmet check above already rejected any "- [ ]"). Closes the
+# count-only hole: renamed/omitted required gates no longer read green by keeping the count up.
+$missing = @()
+foreach ($g in $gates) {
+    $parts  = $g -split ';', 2
+    $anchor = $parts[0]
+    $label  = $parts[1]
+    $found = $false
+    # Anchor at the box start: "- [x] " + optional space + the gate's leading words. Trailing
+    # free text (report path, N/A reason, notes) is beyond the anchor and cannot false-match.
+    $pattern = "^- \[[ xX]\]\s*($anchor)"
+    foreach ($b in $boxLines) {
+        if ($b -imatch $pattern) { $found = $true; break }
+    }
+    if (-not $found) { $missing += ("  " + [char]0x2717 + " " + $label) }
+}
+if ($missing.Count -gt 0) {
+    [Console]::Error.WriteLine("check-gates: profile '$profile' is missing required ship-gate(s):")
+    foreach ($m in $missing) { [Console]::Error.WriteLine($m) }
+    [Console]::Error.WriteLine("  The checklist has $total boxes but not the profile's canonical gates. Restore them")
+    [Console]::Error.WriteLine("  from .codeforge/state.template.md (the box wording must name each required gate).")
+    exit 1
+}
+
 # --- E2E evidence check (Attested) --------------------------------------------
 $e2eLine = $null
 $inE = $false
 foreach ($line in $lines) {
     if ($line -match '^##\s+Ship-gate checklist') { $inE = $true; continue }
     elseif ($line -match '^##\s')                 { $inE = $false }
-    if ($inE -and $line -cmatch '^- \[[xX]\]\s+E2E verified') { $e2eLine = $line; break }
+    if ($inE -and $line -imatch '^- \[[xX]\]\s*E2E verified') { $e2eLine = $line; break }
 }
 if ($e2eLine) {
     if ($e2eLine -cmatch '— N/A:') {

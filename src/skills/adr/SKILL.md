@@ -19,7 +19,7 @@ reversible, local, or obvious choices — an ADR for those is noise.
 ## 2. Number and name it
 
 Find the highest existing `docs/adr/<NNN>-*.md` and use the next sequential number. Name it
-`docs/adr/<NNN>-<slug>.md` (`shared/rules/docs-layout.md`), slug after the decision
+`docs/adr/<NNN>-<slug>.md` (`.codeforge/rules/docs-layout.md`), slug after the decision
 (`012-event-sourcing-for-orders.md`).
 
 ## 3. Write it
@@ -35,7 +35,7 @@ Keep it short and specific:
 
 ## 4. Link it
 
-Reference the ADR from the plan and/or `.workflow/state.md` so it's discoverable. If it
+Reference the ADR from the plan and/or `.codeforge/workflow/state.md` so it's discoverable. If it
 replaces an earlier decision, mark the old ADR `superseded by <NNN>` and link both ways —
 ADRs are append-only history, never rewritten.
 
@@ -60,4 +60,4 @@ ADRs are append-only history, never rewritten.
 `docs/adr/<NNN>-<slug>.md` exists with the next sequential number and states Status, Context,
 Decision, Alternatives (with why each lost), and Consequences. If it replaces an earlier
 decision, that ADR is marked superseded and linked. The record is referenced from the plan or
-`.workflow/state.md`. An ADR missing its alternatives or consequences is incomplete — finish it.
+`.codeforge/workflow/state.md`. An ADR missing its alternatives or consequences is incomplete — finish it.

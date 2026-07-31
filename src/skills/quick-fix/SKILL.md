@@ -11,7 +11,7 @@ turns out non-obvious, **stop and switch** to `new-feature` or `fix-bug`.
 ## 0. Set up tracking
 
 - Confirm you are **not on `main`** — create a branch (`chore/<name>` or `fix/<name>`).
-- A full `.workflow/state.md` is optional here; still record the branch and a one-line
+- A full `.codeforge/workflow/state.md` is optional here; still record the branch and a one-line
   intent so the ship-gate has context. If you use state.md, set **Profile: light**.
 
 ## 1. Make the change

@@ -15,11 +15,13 @@ trap 'rm -rf "$TMP"' EXIT
 fail() { echo "FAIL: $*" >&2; exit 1; }
 
 # Write a `standard`-profile workflow state with the full 6-gate checklist (matches
-# shared/rules/ship-gates.md). $1 = file, $2 = green (all checked) | red (last box unchecked).
+# .codeforge/rules/ship-gates.md — check-gates validates gate IDENTITY, so the box wording must
+# name each canonical gate). The E2E gate uses the `— N/A:` escape so no report file is needed
+# in the throwaway target. $1 = file, $2 = green (all checked) | red (last box unchecked).
 write_state() {
   { printf '## Active workflow\n- **Profile:** standard\n## Ship-gate checklist\n'
     printf -- '- [x] On a feature branch\n- [x] Plan reviewed\n- [x] Tests passing\n'
-    printf -- '- [x] Code review clean\n- [x] Change verified\n'
+    printf -- '- [x] Code review clean\n- [x] E2E verified — N/A: smoke test\n'
     if [ "$2" = green ]; then printf -- '- [x] State updated\n'; else printf -- '- [ ] State updated\n'; fi
   } > "$1"
 }
@@ -31,13 +33,20 @@ TB="$TMP/bash"; mkdir -p "$TB"
 for f in CLAUDE.md AGENTS.md opencode.json PROJECT.md CONTINUITY.md \
          .claude/skills/new-feature/SKILL.md .agents/skills/new-feature/SKILL.md \
          .claude/settings.json .codex/config.toml docs/CHANGELOG.md \
-         shared/state.template.md \
-         shared/scripts/check-gates.sh shared/scripts/check-gates.ps1 \
-         shared/scripts/claude-gate-hook.sh shared/scripts/claude-gate-hook.ps1; do
+         .codeforge/state.template.md \
+         .codeforge/scripts/check-gates.sh .codeforge/scripts/check-gates.ps1 \
+         .codeforge/scripts/goal-digest.sh .codeforge/scripts/goal-state.sh \
+         .codeforge/scripts/goal-digest.ps1 .codeforge/scripts/goal-state.ps1 \
+         .codeforge/rules/goal-state.md .codeforge/rules/goal-autonomy-setup.md \
+         .claude/skills/goal/SKILL.md .agents/skills/goal/SKILL.md; do
   [ -e "$TB/$f" ] || fail "bash: expected runtime file $f was not produced"
 done
-[ -x "$TB/shared/scripts/check-gates.sh" ] || fail "bash: check-gates.sh is not executable"
-ls "$TB"/shared/rules/*.md >/dev/null 2>&1 || fail "bash: shared/rules/*.md missing"
+[ -x "$TB/.codeforge/scripts/check-gates.sh" ] || fail "bash: check-gates.sh is not executable"
+ls "$TB"/.codeforge/rules/*.md >/dev/null 2>&1 || fail "bash: .codeforge/rules/*.md missing"
+# ci-templates land as a managed copy
+[ -f "$TB/docs/ci-templates/gates.yml" ]  || fail "bash: docs/ci-templates/gates.yml not installed"
+[ -f "$TB/docs/ci-templates/README.md" ]  || fail "bash: docs/ci-templates/README.md not installed"
+grep -q 'exit 1' "$TB/docs/ci-templates/gates.yml" || fail "bash: ci template lost its fail-closed sentinel"
 # framework machinery + repo files must NOT land in the target (thin install)
 for f in install.sh install.ps1 README.md LICENSE src \
          skills configs sync.sh sync.ps1 \
@@ -46,6 +55,31 @@ for f in install.sh install.ps1 README.md LICENSE src \
 done
 diff -q "$TB/AGENTS.md" "$TB/CLAUDE.md" >/dev/null || fail "AGENTS.md does not match CLAUDE.md"
 echo "ok: bash install (thin payload, no machinery leak, AGENTS.md mirror)"
+
+# --- verify-e2e UI adapter: ships to both mirrors BYTE-IDENTICAL (embed survives sync, §5.11/D6b),
+#     and no UI-deferral wording in ANY shipped surface that had it removed. ---
+for m in .claude .agents; do
+  se="$TB/$m/skills/verify-e2e/SKILL.md"
+  [ -f "$se" ] || fail "verify-e2e skill missing from $m mirror"
+  grep -qF '<!-- e2e-ui-ref:start -->' "$se" || fail "$m: verify-e2e embed sentinels missing (embed did not survive sync)"
+  # sync (src/sync.sh) copies skills with a pure cp -R (no templating), so the installed skill must
+  # be byte-identical to src. Combined with the src-vs-reference drift test (skill-embed-drift),
+  # this proves the INSTALLED embedded block === the reference harness byte-for-byte (§5.11).
+  diff -q "$se" "$ROOT/src/skills/verify-e2e/SKILL.md" >/dev/null \
+    || fail "$m: installed verify-e2e skill differs from src (embed did not survive sync byte-for-byte)"
+done
+# The UI→N/A carve-out was removed from these surfaces (Plan B); assert it did not leak into ANY of
+# their SHIPPED copies (both mirrors + the flipped workflows/gates + generated CLAUDE.md/AGENTS.md).
+for f in "$TB"/.claude/skills/verify-e2e/SKILL.md "$TB"/.agents/skills/verify-e2e/SKILL.md \
+         "$TB"/.claude/skills/new-feature/SKILL.md "$TB"/.agents/skills/new-feature/SKILL.md \
+         "$TB"/.claude/skills/fix-bug/SKILL.md "$TB"/.agents/skills/fix-bug/SKILL.md \
+         "$TB"/.codeforge/rules/ship-gates.md "$TB"/CLAUDE.md "$TB"/AGENTS.md; do
+  [ -f "$f" ] || fail "expected shipped surface missing: $f"
+  if grep -qiE 'no v1 adapter|UI (is |journey,? )?deferred|UI-only changes' "$f"; then
+    fail "UI-deferral wording leaked into shipped $f"
+  fi
+done
+echo "ok: verify-e2e UI adapter ships byte-identical to both mirrors; no UI-deferral wording in any shipped surface"
 
 # --- 1b. bash install scaffolds the e2e report/use-case dirs (ship-gate binds to these) ---
 [ -d "$TB/docs/e2e/reports" ]   || fail "bash: docs/e2e/reports was not scaffolded"
@@ -66,10 +100,10 @@ fi
 
 # --- 3. --upgrade preserves project-owned files and project-owned rules ---
 printf 'MYPROJECT_MARKER\n' > "$TB/PROJECT.md"
-printf 'mine\n' > "$TB/shared/rules/my-rule.md"
+printf 'mine\n' > "$TB/.codeforge/rules/my-rule.md"
 "$ROOT/install.sh" "$TB" --upgrade >/dev/null || fail "install --upgrade exited non-zero"
 grep -q MYPROJECT_MARKER "$TB/PROJECT.md" || fail "upgrade clobbered project-owned PROJECT.md"
-[ -f "$TB/shared/rules/my-rule.md" ] || fail "upgrade dropped a project-owned rule from shared/rules/"
+[ -f "$TB/.codeforge/rules/my-rule.md" ] || fail "upgrade dropped a project-owned rule from .codeforge/rules/"
 echo "ok: --upgrade preserves project-owned files + project rules"
 
 # --- 4. data-loss guard: a user's own new-feature skill is backed up, not wiped ---
@@ -92,12 +126,12 @@ bash "$ROOT/src/sync.sh" --out "$SO" >/dev/null || fail "sync.sh --out exited no
 echo "ok: sync fails non-zero on missing input; --out targets a separate dir"
 
 # --- 6. --upgrade prunes framework rules removed upstream, keeps project-owned ones ---
-printf 'rule:ghost.md\n' >> "$TB/.forge-manifest"
-printf 'ghost\n'   > "$TB/shared/rules/ghost.md"
-printf 'keep-me\n' > "$TB/shared/rules/keep-me.md"
+printf 'rule:ghost.md\n' >> "$TB/.codeforge/manifest"
+printf 'ghost\n'   > "$TB/.codeforge/rules/ghost.md"
+printf 'keep-me\n' > "$TB/.codeforge/rules/keep-me.md"
 "$ROOT/install.sh" "$TB" --upgrade >/dev/null || fail "prune-case upgrade exited non-zero"
-[ -e "$TB/shared/rules/ghost.md" ] && fail "framework rule removed upstream was not pruned"
-[ -e "$TB/shared/rules/keep-me.md" ] || fail "project rule was wrongly pruned"
+[ -e "$TB/.codeforge/rules/ghost.md" ] && fail "framework rule removed upstream was not pruned"
+[ -e "$TB/.codeforge/rules/keep-me.md" ] || fail "project rule was wrongly pruned"
 echo "ok: --upgrade prunes upstream-removed framework rules, keeps project rules"
 
 # --- 7. bare run installs into cwd; running from inside codeforge is refused ---
@@ -136,50 +170,44 @@ printf 'mine\n' > "$TF/configs/mine.txt"; printf 'mine\n' > "$TF/skills/mine/SKI
 echo "ok: first install leaves an unrelated project's own configs/ and skills/ untouched"
 
 # --- 10. check-gates (Tier B): green state passes, an unchecked box fails non-zero ---
-TC="$TMP/gates"; mkdir -p "$TC/.workflow"
+TC="$TMP/gates"; mkdir -p "$TC/.codeforge/workflow"
 "$ROOT/install.sh" "$TC" >/dev/null || fail "check-gates case install exited non-zero"
-GATES="$TC/shared/scripts/check-gates.sh"
-write_state "$TC/.workflow/state.md" green
+GATES="$TC/.codeforge/scripts/check-gates.sh"
+write_state "$TC/.codeforge/workflow/state.md" green
 ( cd "$TC" && sh "$GATES" >/dev/null 2>&1 ) || fail "check-gates: a fully-checked state should exit 0"
-write_state "$TC/.workflow/state.md" red
+write_state "$TC/.codeforge/workflow/state.md" red
 if ( cd "$TC" && sh "$GATES" >/dev/null 2>&1 ); then fail "check-gates: an unchecked box should exit non-zero"; fi
-printf '## Active workflow\n- **Profile:** standard\n## Ship-gate checklist\n- [x] a\n- [x] b\n' > "$TC/.workflow/state.md"
+printf '## Active workflow\n- **Profile:** standard\n## Ship-gate checklist\n- [x] a\n- [x] b\n' > "$TC/.codeforge/workflow/state.md"
 if ( cd "$TC" && sh "$GATES" >/dev/null 2>&1 ); then fail "check-gates: a standard checklist missing required gates must not pass"; fi
 [ -f "$TC/nope.md" ] && fail "test setup error"
 ( cd "$TC" && sh "$GATES" nope.md >/dev/null 2>&1 ) && fail "check-gates: a missing state file should exit non-zero" || true
 echo "ok: check-gates passes a green state and blocks an unchecked box"
 
-# --- 11. .forge-version: fresh install stamps VERSION; an older prior triggers an upgrade advisory ---
+# --- 11. .codeforge/version: fresh install stamps VERSION; an older prior triggers an upgrade advisory ---
 TV="$TMP/version"; mkdir -p "$TV"
 "$ROOT/install.sh" "$TV" >/dev/null || fail "version-case install exited non-zero"
 want="$(head -n1 "$ROOT/VERSION" | tr -d '[:space:]')"
-got="$(head -n1 "$TV/.forge-version" 2>/dev/null | tr -d '[:space:]')"
-[ "$got" = "$want" ] || fail ".forge-version stamp '$got' != VERSION '$want'"
-printf '0.0.1\n' > "$TV/.forge-version"
+got="$(head -n1 "$TV/.codeforge/version" 2>/dev/null | tr -d '[:space:]')"
+[ "$got" = "$want" ] || fail ".codeforge/version stamp '$got' != VERSION '$want'"
+printf '0.0.1\n' > "$TV/.codeforge/version"
 up_out="$("$ROOT/install.sh" "$TV" --upgrade 2>&1)"
 printf '%s' "$up_out" | grep -q "upgrading this target" || fail "older prior did not produce an upgrade advisory"
-[ "$(head -n1 "$TV/.forge-version" | tr -d '[:space:]')" = "$want" ] || fail "upgrade did not re-stamp .forge-version"
-echo "ok: .forge-version stamped on install; drift advisory on version change"
+[ "$(head -n1 "$TV/.codeforge/version" | tr -d '[:space:]')" = "$want" ] || fail "upgrade did not re-stamp .codeforge/version"
+echo "ok: .codeforge/version stamped on install; drift advisory on version change"
 
-# --- 12. --with-hooks (opt-in Claude gate): writes settings.local.json; hook blocks a red state ---
+# --- 12. --with-hooks is a retired no-op; the gate hook is never installed ---
 TH="$TMP/hooks"; mkdir -p "$TH"
-"$ROOT/install.sh" "$TH" --with-hooks >/dev/null || fail "--with-hooks install exited non-zero"
-SL="$TH/.claude/settings.local.json"
-[ -f "$SL" ] || fail "--with-hooks did not write the local settings file"
-grep -q "claude-gate-hook" "$SL" || fail "local settings file does not reference the gate hook"
-mkdir -p "$TH/.workflow"
-GHOOK="$TH/shared/scripts/claude-gate-hook.sh"
-write_state "$TH/.workflow/state.md" red
-rc=0; ( cd "$TH" && printf '{"tool_input":{"command":"git commit -m x"}}' | sh "$GHOOK" >/dev/null 2>&1 ) || rc=$?
-[ "$rc" = 2 ] || fail "gate hook should exit 2 (block) on a red state + ship action, got $rc"
-write_state "$TH/.workflow/state.md" green
-( cd "$TH" && printf '{"tool_input":{"command":"git push"}}' | sh "$GHOOK" >/dev/null 2>&1 ) || fail "gate hook should allow (exit 0) on a green state"
-( cd "$TH" && printf '{"tool_input":{"command":"ls -la"}}' | sh "$GHOOK" >/dev/null 2>&1 ) || fail "gate hook should allow (exit 0) a non-ship command"
-rm -f "$TH/.workflow/state.md"
-( cd "$TH" && printf '{"tool_input":{"command":"git push"}}' | sh "$GHOOK" >/dev/null 2>&1 ) || fail "gate hook should fail OPEN (exit 0) when state is missing/unverifiable"
-TH2="$TMP/nohooks"; mkdir -p "$TH2"; "$ROOT/install.sh" "$TH2" >/dev/null
-[ -f "$TH2/.claude/settings.local.json" ] && fail "bare install wrongly created the opt-in local settings file"
-echo "ok: --with-hooks installs the Claude gate; it blocks a red ship and allows a green one"
+"$ROOT/install.sh" "$TH" --with-hooks >/dev/null 2>&1 || fail "--with-hooks (deprecated no-op) should still install cleanly"
+[ ! -e "$TH/.codeforge/scripts/claude-gate-hook.sh" ] || fail "claude-gate-hook.sh must no longer be installed"
+[ ! -e "$TH/.codeforge/scripts/claude-gate-hook.ps1" ] || fail "claude-gate-hook.ps1 must no longer be installed"
+if [ -f "$TH/.claude/settings.local.json" ]; then
+  grep -q 'claude-gate-hook' "$TH/.claude/settings.local.json" && fail "settings.local.json must not reference the retired gate hook"
+fi
+# upgrade prunes a stale hook left by an older install
+mkdir -p "$TH/.codeforge/scripts"; : > "$TH/.codeforge/scripts/claude-gate-hook.sh"
+"$ROOT/install.sh" "$TH" --upgrade >/dev/null 2>&1 || fail "upgrade over a stale-hook target should succeed"
+[ ! -e "$TH/.codeforge/scripts/claude-gate-hook.sh" ] || fail "upgrade must prune a stale claude-gate-hook.sh"
+echo "ok: --with-hooks retired (deprecated no-op, gate hook never installed, stale hook pruned)"
 
 # --- 13. git: a non-git target warns (and stays non-git); --git-init initializes a repo ---
 TG1="$TMP/nogit"; mkdir -p "$TG1"

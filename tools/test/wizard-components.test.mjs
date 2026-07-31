@@ -13,4 +13,8 @@ test('Summary shows the equivalent non-interactive command (defaults only, no pr
   // them, so the printed command must not claim one.
   assert.doesNotMatch(lastFrame(), /--profile=/);
   assert.match(lastFrame(), /wizard-only/); // phrase may wrap inside the card border
+  // --with-hooks was retired from the wizard: Summary shows only the profile line,
+  // never a separate Hooks line.
+  assert.match(lastFrame(), /Profile:/);
+  assert.doesNotMatch(lastFrame(), /Hooks:/);
 });

@@ -20,10 +20,19 @@ const SKILL_MAX_LINES = 500;  // progressive-disclosure budget (warning)
 const MODEL_ID_RE =
   /(opencode-go\/[a-z0-9.\-]+|gpt-[0-9][0-9a-z.\-]*|glm-[0-9][0-9a-z.\-]*|kimi-k[0-9]+|claude-(?:opus|sonnet|haiku|fable)[0-9a-z.\-]*|\bopus\b|\bsonnet\b|\bhaiku\b)/i;
 
-// A skill's SKILL.md may reference shared machinery by repo-relative path.
+// A skill's SKILL.md may reference framework machinery by repo-relative path.
 // Every such path must exist under src/ or it degrades silently (sync copies
 // skills into two destinations, so one broken link breaks all three engines).
-const SHARED_REF_RE = /\b(shared\/[a-z0-9/_-]+\.md)\b/gi;
+//
+// Paths are written as they appear IN THE INSTALLED TARGET (`.codeforge/rules/x.md`), while the
+// payload keeps them under `src/codeforge/` — the installer adds the dot when it copies. The lookup
+// below strips the leading dot for that reason. Also matches the retired `shared/...` spelling so a
+// stale reference is reported as broken instead of being silently ignored by the regex.
+// NOTE: no leading `\b` — a word boundary cannot exist between a space and the `.` of
+// `.codeforge`, so `\b` made this regex match NOTHING and silently disabled the whole
+// reference-integrity check. Use an explicit lookbehind instead, which still prevents
+// `myshared/x.md` from matching the bare `shared/` spelling.
+const SHARED_REF_RE = /(?<![\w/-])((?:\.codeforge|shared)\/[a-z0-9/_-]+\.md)\b/gi;
 
 /** Parse the leading `--- ... ---` YAML-ish frontmatter. Returns {name, description} or null. */
 function parseFrontmatter(text) {
@@ -121,13 +130,23 @@ export function lintSkills({ skillsDir, claudeMd, srcDir }) {
     // --- Model-ID quarantine (hard) ---
     const idHit = text.match(MODEL_ID_RE);
     if (idHit)
-      err(r, `hard-codes a model id "${idHit[0]}" — reference shared/rules/models.md instead`);
+      err(r, `hard-codes a model id "${idHit[0]}" — reference .codeforge/rules/models.md instead`);
 
     // --- Reference integrity (hard) ---
     for (const m of text.matchAll(SHARED_REF_RE)) {
       const rel = m[1];
-      if (!existsSync(join(srcDir, rel)))
-        err(r, `broken reference: ${rel} (not found under src/)`);
+      if (rel.startsWith('shared/')) {
+        err(r, `stale reference: ${rel} — machinery now lives at .codeforge/${rel.slice('shared/'.length)}`);
+        continue;
+      }
+      // `.codeforge/workflow/**` is RUNTIME state: a workflow creates it from the template at
+      // start, and it is gitignored. It is legitimately absent from the payload, so requiring it to
+      // exist here would force every skill that mentions the state file to fail. (Before the
+      // consolidation this path was `.workflow/**` and simply did not match the old `shared/` regex.)
+      if (rel.startsWith('.codeforge/workflow/')) continue;
+      // `.codeforge/x` in the target == `src/codeforge/x` in the payload.
+      if (!existsSync(join(srcDir, rel.replace(/^\./, ''))))
+        err(r, `broken reference: ${rel} (not found under src/codeforge/)`);
     }
 
     // --- Anatomy ---

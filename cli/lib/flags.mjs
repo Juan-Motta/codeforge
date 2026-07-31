@@ -19,7 +19,6 @@ export function hasInstallIntent(argv) {
 
 export function installerFlags(answers) {
   const out = [answers.target];
-  if (answers.withHooks) out.push('--with-hooks');
   if (answers.gitInit) out.push('--git-init');
   if (answers.noIsolate) out.push('--no-isolate');
   return out;
@@ -30,7 +29,6 @@ export function installerFlags(answers) {
 // have no non-interactive equivalent today — see Summary.mjs's caveat text.
 export function nonInteractiveCommand(answers) {
   const parts = ['npx @jualopezmo/codeforge', answers.target, '--yes'];
-  if (answers.withHooks) parts.push('--with-hooks');
   if (answers.gitInit) parts.push('--git-init');
   if (answers.noIsolate) parts.push('--no-isolate');
   return parts.join(' ');

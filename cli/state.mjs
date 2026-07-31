@@ -9,7 +9,6 @@ export function makeDefaultAnswers(cwd) {
     reviewers: ['codex'],
     council: ['codex'],
     profile: 'standard',
-    withHooks: false,
     gitInit: false,
     noIsolate: false,
     // Claude-only: execution mode + the model dispatched subagents run with.

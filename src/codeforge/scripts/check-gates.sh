@@ -1,28 +1,28 @@
 #!/bin/sh
 # check-gates.sh — deterministic ship-gate checklist validator (Tier B).
 #
-# Reads .workflow/state.md and confirms every ship-gate box for the active
+# Reads .codeforge/workflow/state.md and confirms every ship-gate box for the active
 # profile is checked (or explicitly N/A). Exit 0 = the recorded checklist is
 # complete; non-zero + a list = unmet boxes.
 #
-#   sh shared/scripts/check-gates.sh                 # reads .workflow/state.md
-#   sh shared/scripts/check-gates.sh path/to/state.md
+#   sh .codeforge/scripts/check-gates.sh                 # reads .codeforge/workflow/state.md
+#   sh .codeforge/scripts/check-gates.sh path/to/state.md
 #
 # HONESTY: this verifies the RECORD, not the underlying work. A checked box is an
 # *attestation* by whoever checked it — the script confirms the checklist is
 # complete, it cannot confirm the tests really passed or the change was really
-# exercised. See shared/rules/ship-gates.md (Verified / Attested / Advisory).
+# exercised. See .codeforge/rules/ship-gates.md (Verified / Attested / Advisory).
 # It runs only when the agent (or a human, or CI) chooses to call it — Tier B is
 # deterministic but still advisory; it does not block a commit on its own.
 #
 # Exit codes: 0 = complete · 1 = unmet boxes · 3 = cannot read state/checklist.
 set -eu
 
-STATE="${1:-.workflow/state.md}"
+STATE="${1:-.codeforge/workflow/state.md}"
 
 if [ ! -f "$STATE" ]; then
   echo "check-gates: no state file at '$STATE' — cannot verify gates." >&2
-  echo "  Start a workflow (copy shared/state.template.md) before shipping." >&2
+  echo "  Start a workflow (copy .codeforge/state.template.md) before shipping." >&2
   exit 3
 fi
 
@@ -50,18 +50,37 @@ if [ "$total" -eq 0 ]; then
 fi
 
 # Validate the checklist actually carries the REQUIRED gates for its profile — otherwise a
-# state file that deletes required gates (or claims a profile it doesn't satisfy) reads green.
-# Required counts mirror shared/rules/ship-gates.md (standard = 6, light = 3).
+# state file that deletes OR renames required gates reads green. Two layers:
+#   (1) a required COUNT (cheap floor), and
+#   (2) required gate IDENTITIES (below), matched by a tolerant case-insensitive anchor per
+#       gate. Count alone is insufficient: six arbitrarily-named checked boxes would satisfy
+#       it. Each anchor is matched at the START of a box (right after the "- [x] "), so only a
+#       gate's leading canonical words count — free-form trailing text (a report path, an
+#       "— N/A: <reason>", a note) can never satisfy another gate's anchor. Anchors mirror the
+#       canonical wording in .codeforge/state.template.md / ship-gates.md; each line is
+#       "ANCHOR;Human label" (';' never appears inside an anchor). No POSIX `\b` (BSD/GNU parity).
+# Required counts mirror .codeforge/rules/ship-gates.md (standard = 6, light = 3).
 case "$profile" in
-  standard) required=6 ;;
-  light)    required=3 ;;
+  standard)
+    required=6
+    gates='on .*feature branch;On a feature branch
+plan .*review;Plan written and design-reviewed
+tests?;Tests written (TDD) and passing
+code review;Code review clean
+e2e verified;E2E verified
+state .*updated;State updated' ;;
+  light)
+    required=3
+    gates='on .*feature branch;On a feature branch
+change .*verified;Change verified
+still trivial;Still trivial' ;;
   *)        echo "check-gates: unknown gate profile '$profile' — can't determine required gates." >&2
             echo "  Set Profile to 'standard' or 'light' in the Active workflow section." >&2
             exit 3 ;;
 esac
 if [ "$total" -lt "$required" ]; then
   echo "check-gates: profile '$profile' requires $required gates but the checklist has only $total —" >&2
-  echo "  required ship-gate boxes are missing. Restore them from shared/state.template.md." >&2
+  echo "  required ship-gate boxes are missing. Restore them from .codeforge/state.template.md." >&2
   exit 1
 fi
 
@@ -78,6 +97,48 @@ if [ "$unmet" -gt 0 ]; then
   exit 1
 fi
 
+# Identity check: every required gate for the profile must be PRESENT as a box (all boxes are
+# checked at this point — the unmet check above already rejected any "- [ ]"). This closes the
+# count-only hole: renamed/omitted required gates no longer read green just by keeping the box
+# count up. Anchors are matched case-insensitively, per line, against the checklist box lines;
+# each `gates` entry is "ANCHOR;Human label".
+boxes=$(awk '
+  /^##[[:space:]]+Ship-gate checklist/ { inlist = 1; next }
+  /^##[[:space:]]/                     { inlist = 0 }
+  inlist && /^- \[[ xX]\]/             { print }
+' "$STATE")
+missing=""
+OLDIFS=$IFS
+IFS='
+'
+set -f   # no pathname expansion: gate entries carry glob metachars (the '.?'/'.*' in the
+         # anchors) — without this a matching cwd filename could rewrite an anchor via globbing,
+         # diverging from ps1 (which never globs). Restored with `set +f` right after the loop.
+for entry in $gates; do
+  anchor=${entry%%;*}
+  label=${entry#*;}
+  # Anchor at the box start: "- [x] " + optional space + the gate's leading words. Trailing
+  # free text (report path, N/A reason, notes) is beyond the anchor and cannot false-match.
+  if ! printf '%s\n' "$boxes" | grep -iEq "^- \[[ xX]\][[:space:]]*($anchor)"; then
+    missing="${missing}${label}
+"
+  fi
+done
+set +f
+IFS=$OLDIFS
+if [ -n "$missing" ]; then
+  echo "check-gates: profile '$profile' is missing required ship-gate(s):" >&2
+  # Octal escapes live in the printf FORMAT (portable) — not in a %b argument (ksh prints
+  # the '\ddd' literally there). One line per missing gate label.
+  printf '%s\n' "$missing" | while IFS= read -r ml; do
+    [ -n "$ml" ] || continue
+    printf '  \342\234\227 %s\n' "$ml" >&2
+  done
+  echo "  The checklist has $total boxes but not the profile's canonical gates. Restore them" >&2
+  echo "  from .codeforge/state.template.md (the box wording must name each required gate)." >&2
+  exit 1
+fi
+
 # --- E2E evidence check (Attested) --------------------------------------------
 # When the "E2E verified" box is checked as a real run (not "— N/A: <reason>"),
 # bind it to the report PATH NAMED in the box. That named file must EXIST, carry a
@@ -89,7 +150,7 @@ fi
 e2e_line=$(awk '
   /^##[[:space:]]+Ship-gate checklist/ { inlist = 1; next }
   /^##[[:space:]]/                     { inlist = 0 }
-  inlist && /^- \[[xX]\][[:space:]]+E2E verified/ { print; exit }
+  inlist && tolower($0) ~ /^- \[x\][[:space:]]*e2e verified/ { print; exit }
 ' "$STATE")
 
 if [ -n "$e2e_line" ]; then

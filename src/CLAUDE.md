@@ -18,23 +18,23 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 
 - **Resume from continuity.** At the start of each session, read `CONTINUITY.md` first and
   continue from its **Next step** before anything else; if it names an active workflow,
-  open that `.workflow/state.md` too. See `shared/rules/continuity.md`.
+  open that `.codeforge/workflow/state.md` too. See `.codeforge/rules/continuity.md`.
 - **Load project rules.** Also read `PROJECT.md` — this project's persona, info,
   variables, and special rules. It **adds** to these global rules and **should not**
   override the safety/ship-gate baseline (advisory — nothing enforces this). See
-  `shared/rules/project-rules.md`.
+  `.codeforge/rules/project-rules.md`.
 - **Never work on `main`.** Create a branch before changing code.
 - **Pick the right workflow skill** for the task (see index below) and follow it.
-- **`.workflow/state.md` is the source of truth** for the active workflow: its checklist
+- **`.codeforge/workflow/state.md` is the source of truth** for the active workflow: its checklist
   gates shipping. Keep it updated as you progress. If it doesn't exist for the current
-  task, start from `shared/state.template.md`.
+  task, start from `.codeforge/state.template.md`.
 - **Do not ship until the gates pass.** Before `git commit` / `git push` /
-  `gh pr create`, every required box in `.workflow/state.md` must be checked. See
-  `shared/rules/ship-gates.md`.
+  `gh pr create`, every required box in `.codeforge/workflow/state.md` must be checked. See
+  `.codeforge/rules/ship-gates.md`.
 - **Challenge, don't flatter.** Push back on weak ideas; verify claims against the code.
 - **Ground your claims.** State what you verified vs. inferred; cite `file:line`.
 - **Capture learnings.** Save reusable solutions/decisions to the repo `docs/` (portable
-  memory) — see `shared/rules/memory.md` and `shared/rules/docs-layout.md`.
+  memory) — see `.codeforge/rules/memory.md` and `.codeforge/rules/docs-layout.md`.
 
 ## Workflow skills (canonical in `skills/`, discovered by all three harnesses)
 
@@ -46,14 +46,15 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 - `quick-fix` — trivial changes (<3 files, no behavior risk); escalate if scope grows
 - `review` — cross-engine second opinion on a plan or diff (P0–P3 findings)
 - `simplify` — post-green, behavior-preserving cleanup pass (reduce complexity, tests stay green)
-- `verify-e2e` — execute API/CLI user-journey use cases, write an evidence report, and bind the E2E ship-gate box to it
+- `verify-e2e` — execute API/CLI and UI user-journey use cases, write an evidence report, and bind the E2E ship-gate box to it
 - `council` — multi-perspective decision analysis: several engines as advisors → synthesized verdict + minority report (for hard, expensive forks)
 - `adr` — record an architecture decision (context, alternatives, consequences) → `docs/adr/`
 - `finish-branch` — close out a branch: confirm gates → final verify → commit → push → PR
+- `goal` — drive one feature objective autonomously (prd → plan → TDD → review → verify → ship) with only two human gates (approve PRD, create PR); orchestrates the other skills under owner=goal, doesn't replace them
 - `checkpoint` — write a clean session handoff to `CONTINUITY.md` before closing / context reset
 - `index` — generate/refresh `docs/index.md`, a high-level project map for fast orientation
 
-## Discipline reference (`shared/rules/`)
+## Discipline reference (`.codeforge/rules/`)
 
 - `workflow.md` — when to use which skill; the phases
 - `severity.md` — P0–P3 rubric for review findings
@@ -67,14 +68,17 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 - `continuity.md` — session handoff via `CONTINUITY.md`; how to resume on a new session
 - `models.md` — default model per role (research/review/council); reviewer ≠ driver
 - `project-rules.md` — how per-project `PROJECT.md` layers on the global baseline (precedence)
+- `goal-state.md` — `/goal`'s `.codeforge/workflow/state.md` line schemas (shared with `goal-state.sh`)
+- `goal-autonomy-setup.md` — per-engine allow-entries to enable `/goal`'s unattended mode
 
 ## Enforcement model (read this — it's a deliberate trade)
 
-By default there is **no hard conditional block**. The skills instruct you to run the gates
-before shipping (advisory), and `finish-branch` runs `shared/scripts/check-gates.sh` — a
-deterministic check of `.workflow/state.md` that fails loudly on an unchecked box (still only
-when invoked). On top of that, each harness applies a **coarse native approval** on outward
-actions:
+There is **no hard conditional block** locally, and only one mechanism that CAN bind for
+everyone once fully configured. Locally, it's discipline: the skills instruct you to run the gates before shipping
+(**Advisory**), and `finish-branch` runs `.codeforge/scripts/check-gates.sh` — a deterministic
+check of `.codeforge/workflow/state.md` that fails loudly on an unchecked box, but only when invoked
+(**Attested**, local). On top of that, each harness applies a **coarse native approval** on
+outward actions — a human-confirmation prompt, not a gate check:
 
 - **Claude Code:** `git push` / `gh pr create` are `ask`-tier in `.claude/settings.json`
   (human approves).
@@ -83,7 +87,18 @@ actions:
 - **OpenCode:** `permission.bash` in `opencode.json` sets `git push*` / `gh pr create*`
   to `ask` (and force-push to `deny`).
 
-None of them read `.workflow/state.md` to decide — they always ask; you approve, after
-checking the gates (or running `check-gates.sh`). For real blocking on Claude Code,
-`install.sh --with-hooks` adds an opt-in `PreToolUse` hook that exits 2 on incomplete gates.
-A checked box is *attested*, not *verified* — see `shared/rules/ship-gates.md`.
+None of them read `.codeforge/workflow/state.md` to decide — they always ask; you approve, after
+checking the gates (or running `check-gates.sh`).
+
+The **real hard gate** is the shipped CI template, `docs/ci-templates/gates.yml`: once copied
+into `.github/workflows/`, its test step filled in, and made a **required status check** with
+branch protection (bypass disabled), CI independently reruns your declared test command on the
+PR merge result, outside any agent's turn (**Verified**). It only becomes bad-faith-
+**resistant** — and can bind for every clone and every merge — once the repo is also fully
+configured per `docs/ci-templates/README.md` (CODEOWNERS on the workflow file and on the
+test-defining files, "Dismiss stale pull request approvals" enabled, strict/up-to-date checks
+or a merge queue, and bypass disabled for admins too) — and even then it still depends on a
+human actually reading those diffs. Repo/org admins can still bypass branch protection unless
+you've configured otherwise. Until you activate it, nothing here actually blocks a bad ship. A
+checked box in `.codeforge/workflow/state.md` is *attested*, not *verified* — see
+`.codeforge/rules/ship-gates.md` for the full Verified/Attested/Advisory ladder.

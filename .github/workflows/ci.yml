@@ -18,11 +18,20 @@ jobs:
       # ink/react/ink-testing-library, so install deps before `node --test`.
       - name: Install dependencies
         run: npm ci
+      - name: Cache Playwright browsers
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-chromium-${{ runner.os }}-${{ hashFiles('package-lock.json') }}
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
       - name: Lint skills (structural + codeforge rules)
         run: node tools/lint-skills.mjs
       - name: Routing / collision evals
         run: node tools/run-evals.mjs
       - name: Tool unit tests
+        env:
+          E2E_BROWSER_REQUIRED: '1'
         run: node --test
 
   installer:
@@ -52,7 +61,7 @@ jobs:
           $t = Join-Path $env:RUNNER_TEMP 'ps'
           New-Item -ItemType Directory -Force -Path $t | Out-Null
           pwsh -NoProfile -File ./install.ps1 $t
-          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.forge-version','.claude/skills/new-feature/SKILL.md','.agents/skills/new-feature/SKILL.md') {
+          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.codeforge/version','.codeforge/rules/ship-gates.md','.codeforge/scripts/check-gates.ps1','.claude/skills/new-feature/SKILL.md','.agents/skills/new-feature/SKILL.md') {
             if (-not (Test-Path (Join-Path $t $f))) { throw "missing runtime file: $f" }
           }
       - name: npx wrapper translates flags and runs the PowerShell installer
@@ -60,28 +69,9 @@ jobs:
         run: |
           $t = Join-Path $env:RUNNER_TEMP 'npx'
           New-Item -ItemType Directory -Force -Path $t | Out-Null
-          # POSIX-style flag must be translated to -WithHooks by the wrapper on Windows
-          node ./bin/codeforge.mjs $t --with-hooks
-          $sl = Join-Path $t '.claude/settings.local.json'
-          if (-not (Test-Path $sl)) { throw "npx --with-hooks did not write settings.local.json (flag translation failed)" }
-          if (-not (Select-String -LiteralPath $sl -Pattern 'claude-gate-hook' -Quiet)) { throw "gate hook missing from settings.local.json" }
+          node ./bin/codeforge.mjs $t
           $v = (node ./bin/codeforge.mjs --version).Trim()
           if ($v -ne (Get-Content ./VERSION -TotalCount 1).Trim()) { throw "npx --version mismatch: $v" }
       - name: Tool tests (exercises the .ps1 gate parity tests under native Windows path/shell semantics)
         shell: pwsh
         run: node --test tools/test/
-      - name: PowerShell gate hook blocks a red ship and fails open on missing state
-        shell: pwsh
-        run: |
-          $t = Join-Path $env:RUNNER_TEMP 'npx'
-          New-Item -ItemType Directory -Force -Path (Join-Path $t '.workflow') | Out-Null
-          $hook = Join-Path $t 'shared/scripts/claude-gate-hook.ps1'
-          $red = "## Active workflow`n- **Profile:** standard`n## Ship-gate checklist`n- [x] a`n- [x] b`n- [x] c`n- [x] d`n- [x] e`n- [ ] f`n"
-          Set-Content -Path (Join-Path $t '.workflow/state.md') -Value $red
-          Push-Location $t
-          '{"tool_input":{"command":"git push"}}' | pwsh -NoProfile -File $hook *> $null
-          if ($LASTEXITCODE -ne 2) { Pop-Location; throw "pwsh hook should BLOCK (exit 2) a red ship, got $LASTEXITCODE" }
-          Remove-Item -Force (Join-Path $t '.workflow/state.md')
-          '{"tool_input":{"command":"git push"}}' | pwsh -NoProfile -File $hook *> $null
-          if ($LASTEXITCODE -ne 0) { Pop-Location; throw "pwsh hook should fail OPEN (exit 0) on missing state, got $LASTEXITCODE" }
-          Pop-Location

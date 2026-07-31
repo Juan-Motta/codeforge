@@ -1,9 +1,9 @@
 # Project rules
 
 > Project-specific rules for THIS project. Always loaded alongside the global baseline
-> (`CLAUDE.md` golden rules + `shared/rules/*`). These **add and refine** — they
+> (`CLAUDE.md` golden rules + `.codeforge/rules/*`). These **add and refine** — they
 > **should not** override the global safety rules (branch safety, ship-gate) — advisory;
-> nothing enforces it. See `shared/rules/project-rules.md`.
+> nothing enforces it. See `.codeforge/rules/project-rules.md`.
 > Copy this file to `PROJECT.md` and fill it in.
 
 ## Persona
@@ -26,9 +26,21 @@
 
 - <rule>
 
+## Review policy
+
+<!-- Managed by the codeforge setup wizard — and the SOURCE OF TRUTH for these three values.
+     PROJECT.md is project-owned, so it survives `--upgrade`; `.codeforge/rules/models.md` and
+     `.codeforge/state.template.md` are MANAGED (refreshed by name on every install), so a value
+     written only there is silently reset. The installers re-render both FROM this section on
+     every run. Edit here, or re-run the wizard. See `.codeforge/rules/project-rules.md`. -->
+
+Default reviewer(s): Codex (`gpt-5.6-sol`, xhigh)
+Council advisors: all three (max diversity)
+Gate profile: standard
+
 ## Execution
 
 <How the driver runs a multi-task plan. Managed by the codeforge setup wizard — see
-`shared/rules/execution.md`. Default: inline.>
+`.codeforge/rules/execution.md`. Default: inline.>
 
 Execution: inline

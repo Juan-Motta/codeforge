@@ -4,6 +4,156 @@ Notable changes to the codeforge framework itself, newest first. This is the fra
 development log; it is **not** the seed shipped to installed projects (that lives at
 `src/docs/CHANGELOG.md`).
 
+## 0.6.0 — 2026-07-22
+
+- **BREAKING (installed layout): all framework machinery moved under a single `.codeforge/` dir.**
+  An install used to scatter 13 entries across the host project's root, four of which were pure
+  machinery: `shared/rules/`, `shared/scripts/`, `shared/state.template.md`, `.workflow/`,
+  `.forge-manifest` and `.forge-version`. A `shared/` directory in someone else's repo is both
+  presumptuous and collision-prone. They are now `.codeforge/{rules,scripts,state.template.md,
+  workflow/,manifest,version}`; the root is down to **11 entries**, and everything still there is
+  either engine-mandated (`.claude/`, `.agents/`, `.codex/`, `opencode.json`, `CLAUDE.md`,
+  `AGENTS.md` — each engine discovers these by fixed convention, so they cannot move),
+  project-owned (`PROJECT.md`, `CONTINUITY.md`), or `docs/`.
+  **`docs/` deliberately stays in the open.** ADRs, PRDs, plans, research and the CHANGELOG are
+  project knowledge, not framework state: GitHub renders `docs/`, ADR tooling expects it there, and
+  a CHANGELOG inside a dotfolder is wrong. Keeping it also left 79 path references untouched.
+  Mechanically this rewrote ~336 references across ~42 files (payload 158, `install.sh` 49,
+  `install.ps1` 39, `tests/smoke.sh` 31, `tools/` 138, `cli/` 9). The payload dir is `src/codeforge/`
+  **without** the dot — the installer adds it when copying, matching how `src/CLAUDE.md` and
+  `src/PROJECT.template.md` are already relocated on install.
+  **No migration**, by design (no real users yet): a target still on the old layout has its
+  `shared/`, `.workflow/`, `.forge-manifest` and `.forge-version` **removed** on the next install,
+  announced on stdout. That is hygiene, not compatibility — two competing copies of the rules with
+  no way to tell which one the agent reads is worse than either layout alone.
+  Three things this shook out, none of them mechanical:
+  1. **`.gitignore` must name `.codeforge/workflow/`, never `.codeforge/`.** A bare entry would
+     untrack the rules and scripts that have to ship with the project, leaving a fresh clone with no
+     machinery. Now asserted by `tools/test/installed-layout.test.mjs`.
+  2. **The linter's reference-integrity check was silently dead.** The new regex began with `\b`,
+     and a word boundary cannot exist between a space and the `.` of `.codeforge` — so it matched
+     nothing and the "0 errors" it reported meant "0 checks". Caught by a unit test that expected a
+     broken reference to fail; replaced with an explicit lookbehind, and verified discriminating by
+     breaking a real reference. It also needed a carve-out: `.codeforge/workflow/**` is runtime state
+     created from the template at workflow start, legitimately absent from the payload.
+  3. **`goal-digest`'s exclusion pathspec** had to move with it; had it kept excluding `.workflow/*`,
+     the digest would have started including volatile state and **no `/goal` certification would ever
+     match again** — with no error to show for it.
+  New `tools/test/installed-layout.test.mjs` (4 tests) pins the root entry set for both installers,
+  proves the machinery is committable while the workflow state is ignored, and checks the old-layout
+  cleanup. Nothing asserted the installed footprint before, which is precisely how it spread.
+- **`--upgrade` no longer eats the setup wizard's configuration (data loss).** The wizard wrote its
+  review policy into `shared/rules/models.md` and its gate profile into `shared/state.template.md` —
+  both **MANAGED**, i.e. refreshed by name on every install by a bare `cp`. So
+  `npx @jualopezmo/codeforge --upgrade` silently reset a team's chosen reviewer and profile to the
+  shipped defaults, with no `.pre-forge.bak` for either file; and because `--upgrade` skips the
+  wizard (`cli/lib/flags.mjs:13-18`), nothing reapplied them. The answers were not persisted
+  anywhere else, so they could only be recovered by re-typing them. Reproduced end to end:
+  `Profile: light` → `standard` across one upgrade. **Fix:** `PROJECT.md § Review policy` is now the
+  source of truth — project-owned, never clobbered — and both installers **re-render** the two
+  managed files from it on every run. This is the pattern `applyExecution` already used for
+  `## Execution`, whose comment states the reason ("Lives in PROJECT.md because it is project-owned
+  and survives `--upgrade`"); review policy and profile simply had not been moved with it, so the
+  fix extends a known-good mechanism rather than inventing one. Only value lines are substituted,
+  so the section's explanatory comments survive repeated wizard runs. A missing section, a missing
+  line, or a gate profile outside `standard|light` is a **no-op** that keeps the shipped default —
+  an unknown profile must never reach `state.template.md`, since `check-gates` exits 3 on one.
+  Values pass into `awk` through **`ENVIRON[]`, not `-v`**: `-v` applies escape-sequence processing,
+  and a hand-edited label containing `C:\tmp\new` became `C:<TAB>mp` plus a line break (proven
+  discriminating — reverting to `-v` fails the new test). sh + ps1 parity, byte-identical output on
+  a hostile value. New suite `tools/test/wizard-config-upgrade.test.mjs` (9 tests) covers the
+  round trip through both installers, idempotence, the no-section path, profile rejection, and the
+  metacharacter case. Note: `tests/smoke.sh` already asserted that `--upgrade` preserves
+  `PROJECT.md` and a user's own named rule — the managed blocks were the untested gap, which is why
+  CI was green over this the whole time.
+  **No migration for targets predating the section** — there are no real users yet, so a target
+  installed before this change keeps the shipped defaults and prints a one-line notice pointing at
+  `src/PROJECT.template.md`; reinstall to adopt it. That is a deliberate scope cut, not an
+  oversight: the harvest-and-seed path was built and proven working, then removed as not worth the
+  ongoing cost (and it kept sh/ps1 in parity, since only sh had it).
+  **Two self-inflicted bugs caught before shipping**, both by the tests in this change: the first
+  draft read the section with a `grep` pipeline under `set -euo pipefail`, so any target *without*
+  the section aborted the installer with exit 1 and no message (the `|| true` is load-bearing); and
+  the key was briefly matched via `awk -v k=...` as a dynamic regex, where escape processing turns
+  `Default reviewer\(s\):` into a capture group that never matches — it now matches as a literal
+  prefix with `index()`.
+  **Writes are atomic and non-clobbering.** Rendering goes through `mktemp` inside the destination
+  directory rather than a predictable `"$file.tmp"`: we install into repos we did not create, and a
+  pre-planted symlink at that path would make the redirection write through it to a file outside the
+  target. Failures are fatal, so nothing prints "applied" after a write that did not happen.
+  **`install.ps1` now compares case-sensitively** (`-ceq`/`-clike`/`-cmatch`/`-ccontains`/
+  `-creplace`). PowerShell's defaults are case-insensitive, so `Gate profile: LIGHT` was accepted
+  there and rejected by the POSIX twin — and the value written through would have been one
+  `check-gates` exits 3 on. Both engines now reject it identically.
+- **`publish.yml`: shell injection into the job that holds the npm publish credential.**
+  `tag="${{ inputs.tag }}"` sat inside a `run:` script, and Actions substitutes expressions
+  textually *before* the shell parses them — so a `workflow_dispatch` input could close the quote
+  and append commands in a job with `id-token: write`. Requires repo write to dispatch, so it is a
+  write→publish escalation rather than remote RCE, but it is the highest-value target in the repo.
+  **Fix:** the tag arrives via `env: TAG:`, and `tools/test/publish-workflow.test.mjs` now rejects
+  **any** `${{ }}` inside **any** `run:` script, so the class cannot come back through a future
+  step. The extractor self-tests against a fixture whose expansion sits in the body rather than on
+  the `run:` line, so the guard can't pass vacuously.
+- **The publish credential is isolated from every step that runs project code.** Adding a test gate
+  to the existing single job would have made this *worse*: `id-token: write` would be live during
+  `npm ci` and the whole suite, so a dependency `preinstall` or a tampered test could request the
+  OIDC token and publish before passing the checks it was meant to pass. Split into two jobs — `gate`
+  (`contents: read` only) runs `npm ci`, skill lint, routing evals, `node --test` with
+  `E2E_BROWSER_REQUIRED=1`, and `tests/smoke.sh`; `publish` (`needs: gate`) holds `id-token: write`
+  and runs no project code at all, not even `npm ci`. Top-level permissions are `contents: read`, and
+  the test asserts exactly one job may hold `id-token: write` — counted after stripping comments,
+  since this file's own header explains the rule in prose.
+- **`npm publish` is gated on the tag being published, and the tag must actually be a tag.** The
+  workflow checked out a ref, compared versions, and published — running no tests. "CI was green on
+  `main` at some point" is not evidence that *this* tag passes: tags can be hand-created, and `main`
+  can break between push and dispatch. Checkout now uses `ref: refs/tags/<tag>`, so a **branch**
+  sharing the tag's name can no longer be published (previously a branch `v0.6.0` whose
+  `package.json` said `0.6.0` satisfied every check). Shape validation is an anchored
+  `^v[0-9]+\.[0-9]+\.[0-9]+$` — the earlier `case` glob `v[0-9]*.[0-9]*.[0-9]*` also accepted
+  `v1x.2y.3z` and `v1.2.3-rc`, and the first version of the test looked only for the substring
+  `v[0-9]` and so happily accepted that broken glob. Node stays at **24** in the publish job (npm
+  trusted publishing needs a recent Node/npm pair; briefly lowering it to 20 for cosmetic
+  consistency risked breaking authentication outright), while the `gate` job runs Node 20 so the
+  `engines.node` floor is still exercised. `npm install -g npm@latest` pinned to `npm@11`.
+- **The npm tarball shrank 90%: 960.5 kB → 99.0 kB (unpacked 1.2 MB → 289.2 kB).**
+  `cli/assets/codeforge-icon.png` (847 kB) was **90% of the package** while being a dev-only input
+  to `tools/gen-splash.mjs` — the runtime only ever prints the generated ANSI in
+  `cli/assets/anvil.ans.mjs`. It shipped because `files[]` includes `cli/`. Moved to
+  `tools/assets/` (outside `files[]`) rather than fought with `.npmignore`-vs-`files` precedence,
+  which npm documents ambiguously. `anvil.ans.mjs` regenerated: byte-identical except its
+  provenance header, confirming the generator is reproducible. New
+  `tools/test/package-payload.test.mjs` fails on any binary/media asset under a shipped path, holds
+  the payload to a 400 kB budget, and derives the generator's source path from `gen-splash.mjs` so
+  moving the asset again without updating the generator can't make the assertion vacuous.
+- **`models.md`'s role table no longer contradicts its own review-policy block.** The block is
+  wizard-owned and can say `claude`, while the table row restated `all three (max diversity)` as a
+  fact; the row now points at the block and labels that value the default.
+
+- **Enforcement reframed to a Verified-tier CI template (`docs/ci-templates/gates.yml`).** codeforge
+  now ships an opt-in GitHub Actions workflow where CI independently re-runs your declared test
+  command on the PR merge result, outside any agent's turn; made a required status check with
+  "do not allow bypassing" (plus CODEOWNERS on the workflow and test-defining files, dismiss-stale-
+  approvals, and strict/up-to-date checks per the template's README), it is the only tier that CAN
+  bind for everyone once fully configured. The default test step fails closed until you replace it.
+- **Retired `--with-hooks` (the Claude-only PreToolUse gate hook).** Superseded by the CI Verified
+  tier; its local fast-feedback role is already covered by `finish-branch` running `check-gates`.
+  Removed across the installers, wizard/CLI, and CI; `claude-gate-hook.{sh,ps1}` deleted and pruned
+  from targets on `--upgrade`. `--with-hooks` / `-WithHooks` is now a deprecated no-op (warns, still
+  installs) so existing scripts don't break. Rationale: two rounds of cross-engine plan review showed
+  a local git hook cannot be portable, mandatory enforcement (per-clone `core.hooksPath`, server-side
+  merges skip it, silent bypasses). Docs reframed to an honest Advisory/Attested/Verified ladder.
+- **`check-gates` now validates gate IDENTITY, not just count.** A ship-gate checklist with the
+  right *number* of checked boxes but the wrong (renamed or missing) gates used to read green —
+  the validator only enforced a required count per profile (standard = 6, light = 3). It now
+  also requires each profile's canonical gates to be present. Each gate is matched by a tolerant
+  case-insensitive anchor **anchored to the box's leading words**, so free-form trailing text (a
+  report path, an `— N/A: <reason>`, a note) can never satisfy a different gate's anchor. The
+  E2E evidence extractor was aligned to the same leniency (case-insensitive, optional
+  whitespace) so a box that satisfies the E2E identity can't skip report validation. sh + ps1
+  parity; no POSIX `\b` and `set -f` around the sh match loop (BSD/GNU + glob safety). Closes an
+  enforcement bypass surfaced and hardened over four rounds of cross-engine (Codex) review;
+  fully covered by TDD. Anchors mirror `shared/state.template.md` / `shared/rules/ship-gates.md`.
+
 ## 0.5.1 — 2026-07-22
 
 - **README rewritten for accuracy + readability.** Restructured so a new user reads

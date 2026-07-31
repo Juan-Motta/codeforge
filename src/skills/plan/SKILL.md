@@ -17,7 +17,7 @@ Do not write implementation code in this phase.
 ## 2. Compare approaches
 
 List **2–3 genuinely different** approaches and score them on the fixed axes in
-`shared/rules/approach-comparison.md` (complexity, blast radius, reversibility, time to
+`.codeforge/rules/approach-comparison.md` (complexity, blast radius, reversibility, time to
 validate, correctness/user risk). Name the default winner and why — prefer the simplest
 option that clears the bar.
 
@@ -25,20 +25,27 @@ option that clears the bar.
 
 Run `review` or `council` on the chosen approach before locking it in. If the cheapest
 falsifying experiment is quick, spike it first and let evidence decide. Resolve any
-P0/P1/P2 the reviewer raises (`shared/rules/severity.md`).
+P0/P1/P2 the reviewer raises (`.codeforge/rules/severity.md`).
 
 ## 4. Write the plan
 
 Capture: the goal, the chosen approach + the comparison table, the files/units to touch,
-edge cases, the tests that will prove it (TDD — `shared/rules/tdd.md`), and acceptance
+edge cases, the tests that will prove it (TDD — `.codeforge/rules/tdd.md`), and acceptance
 criteria. Keep units small and single-purpose. Save to `docs/plans/<feature>.md`
-(`shared/rules/docs-layout.md`) and reference it from `.workflow/state.md`. Record any
+(`.codeforge/rules/docs-layout.md`) and reference it from `.codeforge/workflow/state.md`. Record any
 significant architecture decision as an ADR (the `adr` skill) in `docs/adr/`.
 
 ## 5. Hand off to implementation
 
 `new-feature` / `fix-bug` build from this plan. A gap here propagates downstream, so a
 missing required behavior or acceptance criterion is a P1, not a nit.
+
+## Under `/goal` (owner=goal)
+
+`/goal` invokes `review` directly and owns the plan-review loop and its `.codeforge/workflow/state.md` logging
+(`.codeforge/rules/execution.md`). Under `owner=goal` this skill **produces the plan only** — it does
+**NOT** run its own step 3 reviewer dispatch, does not loop to convergence, and does not write
+review-log lines. `/goal` runs review, counts rounds, and enforces the breaker.
 
 ## Common rationalizations
 

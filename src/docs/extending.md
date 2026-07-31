@@ -29,7 +29,7 @@ Examples:
 - "Verify by exercising it."
 - A lightweight multi-engine council (a skill that orchestrates calling several engines
   and synthesizing).
-- Checklists and keeping `.workflow/state.md` updated.
+- Checklists and keeping `.codeforge/workflow/state.md` updated.
 
 **Cost:** the agent does it *because instructed*. Nothing prevents non-compliance.
 
@@ -43,14 +43,14 @@ Examples:
    description: <1–1024 chars; when to use it>
    ---
    ```
-   then the steps, referencing `shared/rules/*` and `.workflow/state.md`.
+   then the steps, referencing `.codeforge/rules/*` and `.codeforge/workflow/state.md`.
 3. Run `./sync.sh` (or `sync.ps1` on Windows). It regenerates `.claude/skills` (Claude Code +
    OpenCode) and `.agents/skills` (Codex + OpenCode) from `skills/` — a full mirror (deletions
    propagate), so every engine discovers the skill. No further config.
 
 **Framework vs project-own skills:** `skills/` holds both. The installer's `--upgrade`
 refreshes only the **framework's own** skills (by name) and never deletes the rest — so a
-skill you add here survives upgrades. (Same for `shared/rules/`.) Give your own skills
+skill you add here survives upgrades. (Same for `.codeforge/rules/`.) Give your own skills
 names distinct from the framework's, or an upgrade will overwrite the collision.
 
 ---
@@ -63,7 +63,7 @@ runs **only when the agent chooses to call it**.
 
 Good fits:
 
-- A `.workflow/state.md` validator (are the required boxes checked?).
+- A `.codeforge/workflow/state.md` validator (are the required boxes checked?).
 - A reproducible git/drift check.
 - An artifact checker that *reports* (not blocks) whether a brief/evidence file exists.
 
@@ -74,7 +74,7 @@ and have the relevant skill name the exact command to run.
 
 ---
 
-## Tier C — Hooks (automatic, blocking, or out-of-turn) — NOT portable
+## Hooks (automatic, blocking, or out-of-turn) — NOT portable
 
 Needed only when something must be *guaranteed* — it cannot be expressed as an
 instruction. This is where interoperability breaks: each engine has a different mechanism,
@@ -82,7 +82,7 @@ so it means maintaining up to three implementations.
 
 Capabilities that require this tier:
 
-- **Conditional blocking** of commit/push/PR based on `.workflow/state.md` (the native
+- **Conditional blocking** of commit/push/PR based on `.codeforge/workflow/state.md` (the native
   `permission` gates only do "always ask", not "block *if* gates are unmet").
 - **Unbypassable evidence gate** / per-iteration clean evidence / a convergence breaker.
 - **A mandatory research gate** (cannot start design until the brief exists).
@@ -99,22 +99,32 @@ Per-engine mechanism (all can block):
 
 **Trade:** three separate implementations to keep in sync, plus per-engine trust/merge
 concerns. Reach for it only when a real guarantee is worth that cost — and start with a single
-engine. **A reference adapter ships opt-in:** `install.sh --with-hooks` (Claude Code only)
-installs a `PreToolUse` hook (`shared/scripts/claude-gate-hook.sh`) that runs the same
-`check-gates.sh` and exits 2 to block a ship on incomplete gates. It stays off the default
-install (per-developer, gitignored `.claude/settings.local.json`) so the portable core is
-unchanged; Codex/OpenCode adapters are not built yet.
+engine. **codeforge doesn't ship per-engine runtime hooks.** Instead, the real example of this
+tier is **the CI Verified template** (`docs/ci-templates/`): a workflow where CI independently
+re-runs the project's declared test command on the PR's merge result, outside any agent's
+turn — no per-engine adapter needed, because it runs in CI, not in an agent's session. Once
+wired up as a required status check under branch protection, it blocks the merge outside any
+engine's turn; it becomes bad-faith-**resistant** (never "proof") — rather than just a check
+that can be quietly weakened — only once the repo is also fully configured per
+`docs/ci-templates/README.md` (CODEOWNERS on the workflow and test-defining files,
+dismiss-stale-approvals, strict/up-to-date checks or a merge queue), and even then it still
+depends on a human actually reading those diffs. Repo/org admins can still bypass branch
+protection unless you've configured otherwise. See `.codeforge/rules/ship-gates.md` for the
+Verified/Attested/Advisory ladder.
 
 ---
 
 ## verify-e2e roadmap (v2)
+
+Shipped: the **UI interface adapter** — `verify-e2e` now drives browser-based use cases
+alongside API/CLI, and the workflow skills (`new-feature`, `fix-bug`) route UI-facing
+changes through it instead of recording `N/A`.
 
 Planned extensions to the `verify-e2e` skill — each is a skill/config change, no hooks
 needed:
 
 - **Playwright `.spec.ts` regression bridge:** graduate passing use cases into
   deterministic, replayable spec files for CI, alongside the markdown use cases.
-- **UI interface adapter:** drive browser-based use cases (today's skill covers API/CLI).
 - **Automatic multi-surface coverage audit:** flag when a feature exposes UI/API/CLI
   surfaces but use cases only cover a subset.
 
@@ -128,7 +138,8 @@ Before adding something, ask in order:
 2. Does it need deterministic, repeatable computation, but only when asked? → **Tier B**
    (a skill that invokes a `scripts/` helper).
 3. Must it be enforced/automatic even if the agent doesn't cooperate, or run outside a
-   turn? → **Tier C** (hooks, per engine) — accept the portability cost, or scope to one
-   engine.
+   turn? → **hooks** (per engine) — accept the portability cost, or scope to one engine; for
+   ship-gate enforcement specifically, prefer the CI Verified template (`docs/ci-templates/`)
+   over a per-engine hook.
 
 Default to the lowest tier that works. Most new functionality is Tier A.

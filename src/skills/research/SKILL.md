@@ -6,7 +6,7 @@ description: Pre-design research — check current docs and prior art for the li
 # research
 
 Don't design on stale, recalled-from-memory assumptions. Model knowledge has a cutoff;
-verify against current sources first. See `shared/rules/research.md` for the full standard.
+verify against current sources first. See `.codeforge/rules/research.md` for the full standard.
 
 ## When to run
 
@@ -26,13 +26,13 @@ Use the engine's available tools (web search / fetch / docs lookup) to gather **
 versioned** facts. Prefer official docs over blog posts. Note the version and the date
 checked. Also look at how established tools/products solved the same problem. If you
 delegate the research to another engine, use the research model from
-`shared/rules/models.md`.
+`.codeforge/rules/models.md`.
 
 ## 3. Write the brief
 
 Create `docs/research/<YYYY-MM-DD>-<topic>.md` with: the questions, sourced findings
 (cite URL + date; separate verified from inferred), prior art, implications for the design,
-and open questions. Follow the shape in `shared/rules/research.md`.
+and open questions. Follow the shape in `.codeforge/rules/research.md`.
 
 ## 4. Hand off to design
 

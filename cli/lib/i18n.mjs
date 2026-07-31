@@ -26,14 +26,9 @@ const en = {
   },
   gates: {
     title: '⚒  Ship-gates',
-    subtitle: 'A checklist in .workflow/state.md must be complete before git push / PR. Profile sets how many gates are required (a default — each workflow can override).',
+    subtitle: 'A checklist in .codeforge/workflow/state.md must be complete before git push / PR. Profile sets how many gates are required (a default — each workflow can override).',
     standard: 'standard   6 gates · full features & bug fixes',
     light: 'light      3 gates · quick-fix / trivial changes',
-    hookTitle: '⚒  Hard-block hook (Claude only)',
-    hookSubtitle: 'Optional: a Claude Code PreToolUse hook that actually blocks a ship action when the gates are not green. Without it, gates are advisory + a native approval prompt.',
-    profileCrumb: 'profile: ',
-    hookNo: 'No — advisory + native approval prompt (default)',
-    hookYes: 'Yes — hard-block push/PR when gates are incomplete',
   },
   project: {
     title: '⚒  Project',
@@ -44,7 +39,7 @@ const en = {
   summary: {
     title: '⚒  Review & confirm',
     target: 'Target: ',
-    profileHooks: (p, h) => `Profile: ${p}   Hooks: ${h ? 'yes' : 'no'}`,
+    profile: (p) => `Profile: ${p}`,
     reviewers: (l) => `Default reviewers: ${l || '(none)'}`,
     council: (l) => `Council advisors: ${l || '(none)'}`,
     execution: (m) => `Execution: ${m}`,
@@ -87,14 +82,9 @@ const es = {
   },
   gates: {
     title: '⚒  Ship-gates',
-    subtitle: 'Un checklist en .workflow/state.md debe estar completo antes de git push / PR. El perfil define cuántos gates se exigen (un valor por defecto — cada workflow puede cambiarlo).',
+    subtitle: 'Un checklist en .codeforge/workflow/state.md debe estar completo antes de git push / PR. El perfil define cuántos gates se exigen (un valor por defecto — cada workflow puede cambiarlo).',
     standard: 'standard   6 gates · features y bugfixes completos',
     light: 'light      3 gates · quick-fix / cambios triviales',
-    hookTitle: '⚒  Hook de bloqueo duro (solo Claude)',
-    hookSubtitle: 'Opcional: un hook PreToolUse de Claude Code que bloquea de verdad el push/PR cuando los gates no están verdes. Sin él, los gates son advisory + el prompt de aprobación nativo.',
-    profileCrumb: 'perfil: ',
-    hookNo: 'No — advisory + prompt de aprobación nativo (por defecto)',
-    hookYes: 'Sí — bloquear push/PR cuando los gates estén incompletos',
   },
   project: {
     title: '⚒  Proyecto',
@@ -105,7 +95,7 @@ const es = {
   summary: {
     title: '⚒  Revisar y confirmar',
     target: 'Destino: ',
-    profileHooks: (p, h) => `Perfil: ${p}   Hooks: ${h ? 'sí' : 'no'}`,
+    profile: (p) => `Perfil: ${p}`,
     reviewers: (l) => `Reviewers por defecto: ${l || '(ninguno)'}`,
     council: (l) => `Council advisors: ${l || '(ninguno)'}`,
     execution: (m) => `Ejecución: ${m}`,

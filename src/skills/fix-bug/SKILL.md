@@ -10,7 +10,7 @@ Fix a defect with evidence, not guesses. Works identically under all three engin
 ## 0. Set up tracking
 
 - Confirm you are **not on `main`** — create a branch (`fix/<name>`).
-- Copy `shared/state.template.md` to `.workflow/state.md`; set skill = `fix-bug`, **Profile:
+- Copy `.codeforge/state.template.md` to `.codeforge/workflow/state.md`; set skill = `fix-bug`, **Profile:
   standard**, feature/bug name, branch, and driver.
 
 ## 1. Reproduce
@@ -26,34 +26,34 @@ verified from what you infer.
 
 ## 3. Failing test first (TDD)
 
-Write a test that fails **because of the bug** (red) — see `shared/rules/tdd.md`. This
+Write a test that fails **because of the bug** (red) — see `.codeforge/rules/tdd.md`. This
 proves the repro and prevents regression. For a high-impact surface, also design-review
 the fix approach with the `review` skill (a different engine) before implementing.
 
 ## 4. Fix minimally
 
 Make the smallest change that turns the test green. Refactor only if it clarifies. Fix
-the real cause, not the symptom. Execute per `shared/rules/execution.md` (inline, or
+the real cause, not the symptom. Execute per `.codeforge/rules/execution.md` (inline, or
 subagent-driven on Claude Code).
 
 ## 5. Code review (cross-engine)
 
 Review the diff with the **other** engine (`review` skill; models per
-`shared/rules/models.md`) + a self-pass; resolve all P0/P1/P2 (`shared/rules/severity.md`).
-Record iterations in `.workflow/state.md`.
+`.codeforge/rules/models.md`) + a self-pass; resolve all P0/P1/P2 (`.codeforge/rules/severity.md`).
+Record iterations in `.codeforge/workflow/state.md`.
 
 ## 6. Verify
 
 Exercise the original repro and confirm it's gone; check you didn't break neighbors.
 Note what you observed. Then run the `verify-e2e` skill to confirm the fix through the
-user-facing interface (API/CLI). Internal-only fixes record
+user-facing interface (API/CLI/UI). Internal-only fixes record
 `E2E verified — N/A: <reason>`. Record the fix (symptom → root cause → fix → how
-verified) in `docs/solutions/<slug>.md` (`shared/rules/memory.md`).
+verified) in `docs/solutions/<slug>.md` (`.codeforge/rules/memory.md`).
 
 ## 7. Ship
 
-Only when every required box in `.workflow/state.md` is checked
-(`shared/rules/ship-gates.md`). Commit, then push / open PR — approve the native prompt
+Only when every required box in `.codeforge/workflow/state.md` is checked
+(`.codeforge/rules/ship-gates.md`). Commit, then push / open PR — approve the native prompt
 only if the gates are green.
 
 ## Common rationalizations

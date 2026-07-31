@@ -7,7 +7,7 @@ import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), '..', '..');
-const script = join(repoRoot, 'src', 'shared', 'scripts', 'check-gates.sh');
+const script = join(repoRoot, 'src', 'codeforge', 'scripts', 'check-gates.sh');
 
 // The sh script needs a POSIX shell. On Windows CI (where `node --test tools/test/`
 // runs so the .ps1 parity tests execute under pwsh) `sh` may be absent — skip
@@ -42,8 +42,8 @@ function setup({ box, report, onDefaultBranch = false } = {}) {
 ${boxLine}
 - [x] State updated
 `;
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'), state);
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'), state);
 
   if (report !== undefined) {
     mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
@@ -54,7 +54,7 @@ ${boxLine}
 
 function run(dir) {
   try {
-    execFileSync('sh', [script, '.workflow/state.md'], { cwd: dir, stdio: 'pipe' });
+    execFileSync('sh', [script, '.codeforge/workflow/state.md'], { cwd: dir, stdio: 'pipe' });
     return 0;
   } catch (e) { return e.status; }
 }
@@ -86,17 +86,17 @@ test('d: box checked + report committed on main (not fresh on branch) → exit 1
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'r.md'), 'VERDICT: PASS\n');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed+report');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/r.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -122,9 +122,37 @@ test('g: no base resolves (default branch), named report PRESENT + PASS → exit
   rmSync(dir, { recursive: true, force: true });
 });
 
-test('h: old 6-box state without E2E box name still passes count, unaffected → exit 0', () => {
+test('h: E2E gate replaced by a non-E2E box → missing required gate → exit 1 (identity)', () => {
+  // setup() supplies the 5 non-E2E canonical gates; replacing the E2E box with an unrelated
+  // one leaves the standard profile without its E2E gate. Count is still 6, but identity
+  // validation must reject the missing required gate (the count-only hole Codex flagged).
   const dir = setup({ box: '- [x] Change verified by exercising it', report: undefined });
-  assert.equal(run(dir), 0);
+  assert.equal(run(dir), 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('w: standard profile with 6 checked boxes but NONE are the required gates → exit 1 (identity)', () => {
+  // The count-only hole: six arbitrarily-named checked boxes satisfied the profile because
+  // check-gates only tallied a required COUNT (6), never the required gate IDENTITIES.
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x');
+  git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** standard
+## Ship-gate checklist
+- [x] gate one
+- [x] gate two
+- [x] gate three
+- [x] gate four
+- [x] gate five
+- [x] gate six
+`);
+  assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -146,7 +174,7 @@ test('k: E2E box line copied from the ship-gates.md doc text (no real N/A escape
   // state.md and checks it, the gate must NOT treat it as an N/A skip — it falls through
   // and is rejected as a placeholder report path (`<...>`).
   const dir = setup({
-    box: '- [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling) and UI-only changes (no v1 adapter)',
+    box: '- [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling)',
     report: undefined,
   });
   assert.equal(run(dir), 1);
@@ -165,17 +193,17 @@ test('i: box checked + report git-add STAGED (not committed) on branch + PASS �
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'r.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/r.md');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/r.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 0);
   rmSync(dir, { recursive: true, force: true });
@@ -193,17 +221,17 @@ test('l: named-path mismatch — box names an ABSENT report while an UNRELATED f
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'other.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -220,17 +248,17 @@ test('m: placeholder report path rejected even when an unrelated fresh PASS exis
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'other.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -246,17 +274,17 @@ test('n: named report committed on the feature branch (base = main) + PASS → e
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'feat.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/feat.md'); git(dir, 'commit', '-qm', 'e2e report');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 0);
   rmSync(dir, { recursive: true, force: true });
@@ -276,17 +304,17 @@ test('o: dev-based branch — a PASS report inherited on dev cannot satisfy the 
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'inherited.md'), 'VERDICT: PASS\n');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'dev inherited report');
   git(dir, 'checkout', '-q', '-b', 'feat/x');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -304,17 +332,17 @@ test('p: named report committed on base then edited unstaged on branch → fresh
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   // Unstaged edit on the branch flips it to PASS.
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'feat.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 0);
   rmSync(dir, { recursive: true, force: true });
@@ -328,17 +356,17 @@ test('q: no-base fail-safe — single branch (no main/master/dev), named report 
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'feat.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 0);
   rmSync(dir, { recursive: true, force: true });
@@ -350,17 +378,17 @@ test('r: no-base fail-safe — single branch, named report ABSENT → exit 1 (ne
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -386,17 +414,17 @@ test('s: SYMLINK at the box-named path (pointing to an external fabricated PASS)
   writeFileSync(join(parent, 'fabricated.md'), 'VERDICT: PASS\n');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   symlinkSync(join(parent, 'fabricated.md'), join(dir, 'docs', 'e2e', 'reports', 'feat.md'));
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/feat.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(parent, { recursive: true, force: true });
@@ -415,17 +443,17 @@ test('t: path TRAVERSAL out of the repo (no base resolves) → exit 1', () => {
   git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
   writeFileSync(join(dir, 'seed'), 'x');
   git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: ../evil.md)
-- [x] f
+- [x] State updated
 `);
   writeFileSync(join(parent, 'evil.md'), 'VERDICT: PASS\n');
   assert.equal(run(dir), 1);
@@ -441,17 +469,17 @@ test('u: SUBDIR path under docs/e2e/reports/ → exit 1 (whitelist rejects the e
   git(dir, 'checkout', '-q', '-b', 'feat/x');
   mkdirSync(join(dir, 'docs', 'e2e', 'reports', 'sub', 'dir'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'sub', 'dir', 'x.md'), 'VERDICT: PASS\n');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/sub/dir/x.md)
-- [x] f
+- [x] State updated
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });
@@ -472,17 +500,137 @@ test('v: MULTI-REPORT line (two "(report:" groups) → exit 1 (ambiguous, one re
   mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
   writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'real.md'), 'VERDICT: PASS\n');
   git(dir, 'add', 'docs/e2e/reports/real.md'); git(dir, 'commit', '-qm', 'e2e report');
-  mkdirSync(join(dir, '.workflow'), { recursive: true });
-  writeFileSync(join(dir, '.workflow', 'state.md'),
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
 `## Active workflow
 - **Profile:** standard
 ## Ship-gate checklist
-- [x] a
-- [x] b
-- [x] c
-- [x] d
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
 - [x] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) see also (report: docs/e2e/reports/real.md)
-- [x] f
+- [x] State updated
+`);
+  assert.equal(run(dir), 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+// --- identity: cross-match, glob, and light-profile coverage (review P1/P2 fixes) --------
+
+test('x: Tests gate omitted but a fresh PASS E2E report named tdd.md must NOT satisfy it → exit 1', () => {
+  // Regression for the P1 cross-match: the E2E line "(report: docs/e2e/reports/tdd.md)" once
+  // matched a global Tests-gate substring search, so a checklist missing the Tests gate read
+  // green. Anchors now match only each box's LEADING words, so a trailing report path can't
+  // satisfy another gate. (On the OLD code this exited 0 — the report is real, fresh, and PASS;
+  // the ONLY defect is the missing gate.)
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, 'docs', 'e2e', 'reports'), { recursive: true });
+  writeFileSync(join(dir, 'docs', 'e2e', 'reports', 'tdd.md'), 'VERDICT: PASS\n');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** standard
+## Ship-gate checklist
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Code review clean
+- [x] E2E verified via verify-e2e (report: docs/e2e/reports/tdd.md)
+- [x] State updated
+- [x] Notes captured
+`);
+  assert.equal(run(dir), 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('x1: Tests gate omitted; "TDD" inside an E2E N/A reason must NOT satisfy it → exit 1', () => {
+  // Second cross-match vector (review round 2): free text in an "— N/A: <reason>" carried the
+  // word TDD, which the old global substring anchor matched. Leading-anchored matching only
+  // looks at each box's opening words, so the E2E box's trailing reason can't satisfy Tests.
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** standard
+## Ship-gate checklist
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Code review clean
+- [x] E2E verified — N/A: covered by TDD
+- [x] State updated
+- [x] Notes captured
+`);
+  assert.equal(run(dir), 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('x3: lowercase "e2e verified" satisfies identity but STILL triggers evidence check → exit 1', () => {
+  // The identity anchor is case-insensitive with optional whitespace; the E2E evidence
+  // extractor must be at least as lenient, or a box that satisfies identity would skip report
+  // validation. Here the lowercase E2E box names no report — evidence must fire and reject it.
+  // (On the OLD case-sensitive `[[:space:]]+` extractor this skipped evidence and exited 0.)
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** standard
+## Ship-gate checklist
+- [x] On a feature branch (not \`main\`)
+- [x] Plan written and design-reviewed
+- [x] Tests written (TDD) and passing
+- [x] Code review clean
+- [x] e2e verified via verify-e2e
+- [x] State updated
+`);
+  assert.equal(run(dir), 1);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('y: light profile with its 3 canonical gates → exit 0', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** light
+## Ship-gate checklist
+- [x] On a feature branch (not \`main\`)
+- [x] Change verified (ran it)
+- [x] Still trivial (<3 files, no behavior risk)
+`);
+  assert.equal(run(dir), 0);
+  rmSync(dir, { recursive: true, force: true });
+});
+
+test('z: light profile with 3 boxes but the "trivial" gate renamed → exit 1 (identity)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cg-'));
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 't@t'); git(dir, 'config', 'user.name', 't');
+  writeFileSync(join(dir, 'seed'), 'x'); git(dir, 'add', '.'); git(dir, 'commit', '-qm', 'seed');
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  mkdirSync(join(dir, '.codeforge/workflow'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge/workflow', 'state.md'),
+`## Active workflow
+- **Profile:** light
+## Ship-gate checklist
+- [x] On a feature branch (not \`main\`)
+- [x] Change verified (ran it)
+- [x] Looks fine to me
 `);
   assert.equal(run(dir), 1);
   rmSync(dir, { recursive: true, force: true });

@@ -2,7 +2,7 @@
 #
 # codeforge installer — copy the workflow discipline into a target project.
 #
-#   ./install.sh [target-dir] [--upgrade] [--with-hooks] [--git-init] [--no-isolate]
+#   ./install.sh [target-dir] [--upgrade] [--git-init] [--no-isolate]
 #
 # With no target-dir, installs into the current working directory. So the common flow is:
 #   cd my-project && /path/to/codeforge/install.sh
@@ -13,7 +13,7 @@
 # into the target. To customize or upgrade, edit the codeforge source and re-run this
 # installer against the target (`--upgrade`, or a bare re-run from inside the project).
 #
-# The shippable payload is the NEUTRAL source in ./src/ (CLAUDE.md, skills/, shared/,
+# The shippable payload is the NEUTRAL source in ./src/ (CLAUDE.md, skills/, .codeforge/,
 # configs/, docs/, *.template.md). This installer copies the runtime subset into the
 # target, then runs `sync.sh --out <target>` to GENERATE each engine's config + skills
 # (.claude/ + .agents/skills + .codex/config.toml + AGENTS.md + opencode.json) straight
@@ -23,14 +23,14 @@
 #
 # LANDS IN THE TARGET (runtime only):
 #   CLAUDE.md, AGENTS.md, opencode.json, .claude/, .agents/, .codex/ (generated),
-#   shared/rules/*.md + shared/state.template.md + shared/scripts/* (managed), docs/ scaffolding + CHANGELOG,
+#   .codeforge/rules/*.md + .codeforge/state.template.md + .codeforge/scripts/* (managed), docs/ scaffolding + CHANGELOG,
 #   PROJECT.md + CONTINUITY.md (project-owned, seeded if missing).
 # STAYS IN codeforge (never copied): src/skills (neutral), configs/, sync.sh, sync.ps1,
 #   *.template.md, docs/extending.md.
 #
 # MANAGED (framework baseline — OVERWRITTEN on install/upgrade): CLAUDE.md, the framework's
-#   OWN entries in shared/rules/, shared/state.template.md. Your own rules dropped into
-#   shared/rules/ survive upgrades (selective, per-entry by name).
+#   OWN entries in .codeforge/rules/, .codeforge/state.template.md. Your own rules dropped into
+#   .codeforge/rules/ survive upgrades (selective, per-entry by name).
 # PROJECT-OWNED (created only if missing — NEVER clobbered): PROJECT.md, CONTINUITY.md,
 #   docs/CHANGELOG.md. Per-project Claude overrides go in .claude/settings.local.json.
 #
@@ -42,15 +42,14 @@ FORGE_VERSION="unknown"
 [ -f "$SRC/VERSION" ] && FORGE_VERSION="$(head -n1 "$SRC/VERSION" | tr -d '[:space:]')"
 [ -n "$FORGE_VERSION" ] || FORGE_VERSION="unknown"
 MODE="install"
-WITH_HOOKS=0
 GIT_INIT=0
 ISOLATE=1   # auto-isolate Claude Code from ancestor CLAUDE.md by default (--no-isolate to keep inheritance)
 TARGET=""
-usage="usage: $0 [target-dir] [--upgrade] [--with-hooks] [--git-init] [--no-isolate]"
+usage="usage: $0 [target-dir] [--upgrade] [--git-init] [--no-isolate]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade)     MODE="upgrade" ;;
-    --with-hooks)  WITH_HOOKS=1 ;;
+    --with-hooks)  echo "  ! --with-hooks is retired (the Claude gate hook is superseded by the CI Verified tier); ignoring." >&2 ;;
     --git-init)    GIT_INIT=1 ;;
     --no-isolate)  ISOLATE=0 ;;
     -*)            echo "$usage  (unknown arg: $1)" >&2; exit 2 ;;
@@ -65,7 +64,7 @@ TARGET="$(cd "$TARGET" && pwd)"
 # Did a prior forge install own .claude/settings.local.json? (read before the manifest is
 # rewritten below, so the settings writer knows whether it may safely regenerate the file.)
 PRIOR_LOCAL_MANAGED=0
-grep -q '^localsettings:managed$' "$TARGET/.forge-manifest" 2>/dev/null && PRIOR_LOCAL_MANAGED=1
+grep -q '^localsettings:managed$' "$TARGET/.codeforge/manifest" 2>/dev/null && PRIOR_LOCAL_MANAGED=1
 { [ -f "$PAYLOAD/CLAUDE.md" ] && [ -d "$PAYLOAD/skills" ]; } || { echo "error: payload not found — run this from the codeforge repo" >&2; exit 2; }
 [ "$TARGET" != "$SRC" ]     || { echo "error: refusing to install into codeforge itself" >&2; exit 2; }
 [ "$TARGET" != "$PAYLOAD" ] || { echo "error: refusing to install into the codeforge payload dir (src/)" >&2; exit 2; }
@@ -75,7 +74,7 @@ echo "codeforge $FORGE_VERSION → installing into: $TARGET  (mode: $MODE)"
 # --- version drift advisory (informational only, never blocks) ---
 # Compare the version that last stamped this target against the one we're installing.
 PRIOR_VERSION=""
-[ -f "$TARGET/.forge-version" ] && PRIOR_VERSION="$(head -n1 "$TARGET/.forge-version" | tr -d '[:space:]')"
+[ -f "$TARGET/.codeforge/version" ] && PRIOR_VERSION="$(head -n1 "$TARGET/.codeforge/version" | tr -d '[:space:]')"
 if [ -n "$PRIOR_VERSION" ] && [ "$PRIOR_VERSION" != "$FORGE_VERSION" ] \
    && [ "$FORGE_VERSION" != "unknown" ] && [ "$PRIOR_VERSION" != "unknown" ]; then
   lower="$(printf '%s\n%s\n' "$PRIOR_VERSION" "$FORGE_VERSION" | sort -V | head -n1)"
@@ -90,9 +89,16 @@ fi
 # --- self-healing: drop machinery this version no longer installs into the target ---
 # (thin model — machinery lives in the codeforge repo; the target gets runtime only.) This
 # migrates a target from an older, bloated install. Gated on a prior forge install
-# (.forge-manifest present) so a FIRST install never touches an unrelated project's own
+# (.codeforge/manifest present) so a FIRST install never touches an unrelated project's own
 # configs/ or skills/ dirs.
-if [ -f "$TARGET/.forge-manifest" ]; then
+if [ -f "$TARGET/.codeforge/manifest" ]; then
+  if [ -e "$TARGET/.codeforge/scripts/claude-gate-hook.sh" ] || [ -e "$TARGET/.codeforge/scripts/claude-gate-hook.ps1" ]; then
+    echo "  ~ the Claude gate hook (--with-hooks) is retired — enforcement is now the CI Verified tier (docs/ci-templates/)."
+  fi
+  # Retired: the opt-in Claude gate hook (superseded by the CI Verified tier).
+  for f in .codeforge/scripts/claude-gate-hook.sh .codeforge/scripts/claude-gate-hook.ps1; do
+    [ -e "$TARGET/$f" ] && { rm -f "$TARGET/$f"; echo "  - removed retired gate hook: $f"; }
+  done
   # Detect a genuinely OLD (pre-thin) forge install: it left this machinery at the target root.
   # A modern thin install — or an unrelated app that happens to keep its own top-level configs/
   # or skills/ — does NOT. Gate the configs/skills migration on this signal so a routine
@@ -117,6 +123,22 @@ if [ -f "$TARGET/.forge-manifest" ]; then
   fi
 fi
 
+# --- remove the pre-.codeforge/ scattered layout, if this target still has it ---
+# Framework machinery used to sit in the target root as `shared/`, `.workflow/`, `.forge-manifest`
+# and `.forge-version`; it now lives under `.codeforge/`. This is NOT a migration — nothing is
+# carried over, by design (see docs/plans/2026-07-25-codeforge-dir-consolidation-plan.md §5). It
+# exists so a re-installed target does not end up with BOTH layouts, which would leave two
+# competing copies of the rules and scripts and no way to tell which one the agent is reading.
+# Gated on the OLD root markers, so a project that happens to own a `shared/` dir is never touched.
+if [ -f "$TARGET/.forge-manifest" ] || [ -f "$TARGET/.forge-version" ]; then
+  echo "  ~ this target uses the pre-.codeforge/ layout — removing the old machinery (no migration; see the plan doc)."
+  rm -rf "$TARGET/shared"
+  rm -f  "$TARGET/.forge-manifest" "$TARGET/.forge-version"
+  # `.workflow/` is volatile per-developer state and gitignored; nothing durable is lost.
+  [ -d "$TARGET/.workflow" ] && { rm -rf "$TARGET/.workflow"; echo "    - removed .workflow/ (volatile state; a workflow re-creates it at .codeforge/workflow/)"; }
+  echo "    - removed shared/, .forge-manifest, .forge-version"
+fi
+
 # --- MANAGED: CLAUDE.md (back up a pre-existing, non-forge one on first install) ---
 if [ -f "$TARGET/CLAUDE.md" ] && ! grep -q "Workflow discipline for Claude Code" "$TARGET/CLAUDE.md" 2>/dev/null; then
   cp "$TARGET/CLAUDE.md" "$TARGET/CLAUDE.md.pre-forge.bak"
@@ -124,16 +146,16 @@ if [ -f "$TARGET/CLAUDE.md" ] && ! grep -q "Workflow discipline for Claude Code"
 fi
 cp "$PAYLOAD/CLAUDE.md" "$TARGET/CLAUDE.md"
 
-# --- MANAGED: framework shared/rules/ (per-entry overwrite by name) ---
-# Refresh only the framework's own rule entries; anything else in shared/rules/ (your
+# --- MANAGED: framework .codeforge/rules/ (per-entry overwrite by name) ---
+# Refresh only the framework's own rule entries; anything else in .codeforge/rules/ (your
 # project's own rules) is left untouched, so it survives --upgrade.
-mkdir -p "$TARGET/shared/rules"
-new_rules="$(cd "$PAYLOAD/shared/rules" && ls *.md 2>/dev/null)"
+mkdir -p "$TARGET/.codeforge/rules"
+new_rules="$(cd "$PAYLOAD/codeforge/rules" && ls *.md 2>/dev/null)"
 
 # Prune framework rules removed upstream: anything in the last-install manifest that is no
 # longer in the current payload is a framework rule deleted upstream — remove it. Project-owned
 # rules are never in the manifest, so they are untouched. (No manifest yet = skip prune.)
-manifest="$TARGET/.forge-manifest"
+manifest="$TARGET/.codeforge/manifest"
 if [ -f "$manifest" ]; then
   while IFS= read -r line; do
     case "$line" in
@@ -141,18 +163,18 @@ if [ -f "$manifest" ]; then
         n="${line#rule:}"
         # The manifest is committed (and with --git-init, git-added), so treat it as untrusted:
         # a prune target must be a bare *.md filename — never a path or traversal — so a tampered
-        # entry can't delete outside shared/rules/.
+        # entry can't delete outside .codeforge/rules/.
         case "$n" in
           */*|*..*|"") echo "  ! ignoring unsafe manifest rule entry: $n" >&2 ;;
-          *.md) printf '%s\n' "$new_rules" | grep -qxF "$n" || { rm -f "$TARGET/shared/rules/$n"; echo "  - pruned framework rule removed upstream: $n"; } ;;
+          *.md) printf '%s\n' "$new_rules" | grep -qxF "$n" || { rm -f "$TARGET/.codeforge/rules/$n"; echo "  - pruned framework rule removed upstream: $n"; } ;;
           *) echo "  ! ignoring non-.md manifest rule entry: $n" >&2 ;;
         esac ;;
     esac
   done < "$manifest"
 fi
 
-for f in "$PAYLOAD"/shared/rules/*.md; do
-  cp "$f" "$TARGET/shared/rules/$(basename "$f")"
+for f in "$PAYLOAD"/codeforge/rules/*.md; do
+  cp "$f" "$TARGET/.codeforge/rules/$(basename "$f")"
 done
 
 # Record the framework-owned manifest for the next upgrade's prune (rules only; skills are
@@ -160,20 +182,20 @@ done
 { printf '%s\n' "$new_rules" | sed 's/^/rule:/'; } > "$manifest"
 
 # Stamp the version that produced this install, for drift detection on the next run.
-printf '%s\n' "$FORGE_VERSION" > "$TARGET/.forge-version"
+printf '%s\n' "$FORGE_VERSION" > "$TARGET/.codeforge/version"
 
-# --- MANAGED: workflow state template (lives in shared/, copied to .workflow/state.md at
+# --- MANAGED: workflow state template (lives in .codeforge/, copied to .codeforge/workflow/state.md at
 #     workflow start by the skills) ---
-cp "$PAYLOAD/shared/state.template.md" "$TARGET/shared/state.template.md"
+cp "$PAYLOAD/codeforge/state.template.md" "$TARGET/.codeforge/state.template.md"
 
-# --- MANAGED: framework shared/scripts/ (agent-invoked Tier-B helpers, e.g. check-gates) ---
-if [ -d "$PAYLOAD/shared/scripts" ]; then
-  mkdir -p "$TARGET/shared/scripts"
-  for f in "$PAYLOAD"/shared/scripts/*; do
+# --- MANAGED: framework .codeforge/scripts/ (agent-invoked Tier-B helpers, e.g. check-gates) ---
+if [ -d "$PAYLOAD/codeforge/scripts" ]; then
+  mkdir -p "$TARGET/.codeforge/scripts"
+  for f in "$PAYLOAD"/codeforge/scripts/*; do
     [ -e "$f" ] || continue
-    cp "$f" "$TARGET/shared/scripts/$(basename "$f")"
+    cp "$f" "$TARGET/.codeforge/scripts/$(basename "$f")"
   done
-  chmod +x "$TARGET"/shared/scripts/*.sh 2>/dev/null || true
+  chmod +x "$TARGET"/.codeforge/scripts/*.sh 2>/dev/null || true
 fi
 
 # --- MANAGED: docs/ scaffolding ---
@@ -183,10 +205,125 @@ for d in prds plans research solutions adr e2e/reports e2e/use-cases; do
   [ -e "$TARGET/docs/$d/.gitkeep" ] || touch "$TARGET/docs/$d/.gitkeep"
 done
 
+# --- MANAGED: CI templates (Verified-tier gate + activation guide) ---
+# Copied into the target (overwritten on upgrade). A pre-existing, non-ours file is backed up
+# once so first adoption never clobbers a user's own docs/ci-templates content.
+if [ -d "$PAYLOAD/docs/ci-templates" ]; then
+  mkdir -p "$TARGET/docs/ci-templates"
+  for f in "$PAYLOAD"/docs/ci-templates/*; do
+    [ -e "$f" ] || continue
+    base="$(basename "$f")"
+    dst="$TARGET/docs/ci-templates/$base"
+    if [ -f "$dst" ] && ! grep -q 'codeforge' "$dst" 2>/dev/null && [ ! -e "$dst.pre-forge.bak" ]; then
+      cp "$dst" "$dst.pre-forge.bak"
+      echo "  ! backed up existing docs/ci-templates/$base -> $base.pre-forge.bak"
+    fi
+    cp "$f" "$dst"
+  done
+fi
+
 # --- PROJECT-OWNED: PROJECT.md / CONTINUITY.md / docs/CHANGELOG.md (create only if missing) ---
 [ -f "$TARGET/PROJECT.md" ]    || { cp "$PAYLOAD/PROJECT.template.md" "$TARGET/PROJECT.md"; echo "  + created PROJECT.md (fill in persona/info/variables/special rules)"; }
 [ -f "$TARGET/CONTINUITY.md" ] || cp "$PAYLOAD/CONTINUITY.template.md" "$TARGET/CONTINUITY.md"
 [ -f "$TARGET/docs/CHANGELOG.md" ] || cp "$PAYLOAD/docs/CHANGELOG.md" "$TARGET/docs/CHANGELOG.md"
+
+# --- re-render the wizard-owned values FROM PROJECT.md (project-owned) into the MANAGED files ---
+# The wizard's review policy and gate profile used to be written straight into
+# .codeforge/rules/models.md and .codeforge/state.template.md, which the copy loops above overwrite by name
+# — so `--upgrade` silently reset a team's reviewer and profile to the shipped defaults, with no
+# backup, and (because --upgrade skips the wizard) nothing reapplied them. PROJECT.md is
+# project-owned and never clobbered, so it is the SOURCE OF TRUTH and those two are DERIVED.
+# Only value lines are substituted, so the section's comments survive. A missing section, a missing
+# line, an unparseable profile, or a malformed managed block is a NO-OP that keeps the shipped
+# default — never a partial write.
+
+# Atomic replace of $1 from stdin. The temp is created by mktemp INSIDE the destination directory
+# rather than at a predictable "$1.tmp": we install into repos we did not create, and a pre-planted
+# symlink at that predictable path would make the redirection write through it to a file outside the
+# target. Any failure is fatal, so no caller can print "applied" after a write that did not happen.
+forge_atomic_write() {
+  _aw_dst="$1"; _aw_dir=$(dirname "$_aw_dst")
+  _aw_tmp=$(mktemp "$_aw_dir/.forge-render.XXXXXX") || { echo "install: cannot create a temp file in $_aw_dir" >&2; exit 1; }
+  if ! cat > "$_aw_tmp"; then rm -f "$_aw_tmp"; echo "install: failed writing $_aw_dst" >&2; exit 1; fi
+  # mktemp creates 0600; these are framework-owned markdown docs, world-readable like the payload.
+  chmod 644 "$_aw_tmp" || { rm -f "$_aw_tmp"; echo "install: failed setting mode on $_aw_dst" >&2; exit 1; }
+  mv "$_aw_tmp" "$_aw_dst" || { rm -f "$_aw_tmp"; echo "install: failed replacing $_aw_dst" >&2; exit 1; }
+}
+
+# No migration for targets predating this section: reinstall from scratch to adopt it. Say so out
+# loud rather than no-opping silently, since the symptom otherwise looks like the bug this fixes.
+if [ -f "$TARGET/PROJECT.md" ] && ! grep -q '^## Review policy[[:space:]]*$' "$TARGET/PROJECT.md" 2>/dev/null; then
+  echo "  ~ PROJECT.md has no '## Review policy' section — the shipped defaults stay in effect."
+  echo "    Add the section (see src/PROJECT.template.md) or reinstall the target to adopt it."
+fi
+
+if [ -f "$TARGET/PROJECT.md" ]; then
+  # Body of the FIRST '## Review policy' section only (CRLF-tolerant). A duplicated heading must not
+  # concatenate two bodies and mix a reviewer from one with a profile from the other.
+  policy=$(awk '{ sub(/\r$/,"") }
+    /^## Review policy[[:space:]]*$/ { if (!seen) { seen=1; f=1; next } }
+    f && /^## / { f=0 }
+    f { print }' "$TARGET/PROJECT.md")
+  _pol_count=$(grep -c '^## Review policy[[:space:]]*$' "$TARGET/PROJECT.md" || true)
+  [ "${_pol_count:-0}" -le 1 ] || echo "  ! PROJECT.md has $_pol_count '## Review policy' sections — using the first"
+
+  # First match wins, `exit` instead of `head` so nothing can die on SIGPIPE (141) under `pipefail`
+  # after the managed files were already replaced. The key is matched as a LITERAL PREFIX via
+  # index(), not as a dynamic regex: `awk -v` applies escape processing, so a key written
+  # `Default reviewer\(s\):` arrives as `Default reviewer(s):` and the parens become a capture
+  # group that no longer matches the real line — which is exactly how this returned empty once.
+  pol_line() {
+    printf '%s\n' "$policy" | awk -v k="$1" '
+      { line = $0; sub(/^[[:space:]]+/, "", line) }
+      index(line, k) == 1 { sub(/[[:space:]]+$/, "", line); print line; exit }'
+  }
+  rev_line=$(pol_line 'Default reviewer(s):')
+  cou_line=$(pol_line 'Council advisors:')
+  prof=$(printf '%s\n' "$policy" | awk 'match($0, /^[[:space:]]*Gate profile:[[:space:]]*[A-Za-z][A-Za-z-]*/) {
+    s = substr($0, RSTART, RLENGTH); sub(/.*Gate profile:[[:space:]]*/, "", s); print s; exit }')
+
+  # models.md: substitute each present key INDEPENDENTLY inside the managed block. Requiring both
+  # would discard a valid reviewer just because the council line was missing.
+  mm="$TARGET/.codeforge/rules/models.md"
+  if { [ -n "$rev_line" ] || [ -n "$cou_line" ]; } && [ -f "$mm" ]; then
+    # Exactly one well-ordered marker pair, or skip: an extra start would leave the in-block state
+    # active to EOF, and a missing pair would report success while changing nothing.
+    _mk=$(awk '/codeforge:review-policy:start/ { s++; if (!f) f=NR }
+               /codeforge:review-policy:end/   { e++; if (!l) l=NR }
+               END { printf "%d %d %d %d", s+0, e+0, f+0, l+0 }' "$mm")
+    set -- $_mk
+    if [ "$1" = 1 ] && [ "$2" = 1 ] && [ "$3" -lt "$4" ]; then
+      # Values pass through the ENVIRONMENT, not `awk -v`: -v applies escape-sequence processing, so
+      # a hand-edited label containing `C:\tmp\new` would become a TAB plus a line break and split
+      # the file. ENVIRON[] is literal. The profile is metacharacter-proof by a different route —
+      # an allowlist before it ever reaches sed.
+      REV_LINE="$rev_line" COU_LINE="$cou_line" awk '
+        /codeforge:review-policy:start/ { inblk=1; print; next }
+        /codeforge:review-policy:end/   { inblk=0; print; next }
+        inblk && /^[[:space:]]*Default reviewer\(s\):/ { if (ENVIRON["REV_LINE"] != "") { print ENVIRON["REV_LINE"]; next } }
+        inblk && /^[[:space:]]*Council advisors:/      { if (ENVIRON["COU_LINE"] != "") { print ENVIRON["COU_LINE"]; next } }
+        { print }
+      ' "$mm" | forge_atomic_write "$mm"
+      echo "  = review policy applied from PROJECT.md -> .codeforge/rules/models.md"
+    else
+      echo "  ! .codeforge/rules/models.md has a malformed review-policy marker pair — left untouched"
+    fi
+  fi
+
+  # state.template.md: only a profile check-gates accepts may be written through, or the user gets a
+  # template that exits 3 ("unknown gate profile") against its own validator. Case-sensitive on
+  # purpose, so `LIGHT` is rejected here exactly as install.ps1 rejects it.
+  st="$TARGET/.codeforge/state.template.md"
+  case "$prof" in
+    standard|light)
+      if [ -f "$st" ]; then
+        sed "s/\(\*\*Profile:\*\*[[:space:]]*\)[A-Za-z][A-Za-z-]*/\1$prof/" "$st" | forge_atomic_write "$st"
+        echo "  = gate profile applied from PROJECT.md -> .codeforge/state.template.md ($prof)"
+      fi ;;
+    "") : ;;
+    *) echo "  ! PROJECT.md 'Gate profile: $prof' is not 'standard' or 'light' — keeping the shipped default" ;;
+  esac
+fi
 
 # --- back up any pre-existing, NON-forge per-engine skills dir before sync overwrites it ---
 # (forge-generated dirs carry a .forge-generated marker; a dir without it is the user's own,
@@ -208,14 +345,13 @@ fi
 #     writes straight into the target — no source or sync script copied there) ---
 bash "$PAYLOAD/sync.sh" --out "$TARGET" >/dev/null
 
-# --- Claude Code .claude/settings.local.json: auto-isolation + opt-in gate hook ---
-# Both features land in this one gitignored, per-developer, machine-specific file. Auto-isolation
-# (default; --no-isolate to keep inheritance) adds `claudeMdExcludes` so Claude Code does NOT
-# blend ancestor CLAUDE.md / .claude/rules into this project — Codex and OpenCode already scope
-# to the project root, Claude Code walks to the filesystem root. --with-hooks adds the Tier-C
-# PreToolUse gate. codeforge only (re)writes this file when it is absent or a prior forge install
-# owned it (tracked as `localsettings:managed` in .forge-manifest); a file it doesn't own is left
-# alone. The hook's $CLAUDE_PROJECT_DIR is resolved by Claude Code at runtime, not now.
+# --- Claude Code .claude/settings.local.json: auto-isolation ---
+# Lands in this one gitignored, per-developer, machine-specific file. Auto-isolation (default;
+# --no-isolate to keep inheritance) adds `claudeMdExcludes` so Claude Code does NOT blend ancestor
+# CLAUDE.md / .claude/rules into this project — Codex and OpenCode already scope to the project
+# root, Claude Code walks to the filesystem root. codeforge only (re)writes this file when it is
+# absent or a prior forge install owned it (tracked as `localsettings:managed` in .codeforge/manifest);
+# a file it doesn't own is left alone.
 excludes=""
 if [ "$ISOLATE" = "1" ]; then
   d="$(dirname "$TARGET")"
@@ -232,10 +368,10 @@ fi
 n_excl=$(printf '%s' "$excludes" | grep -c . || true)
 
 sl="$TARGET/.claude/settings.local.json"
-if [ "$n_excl" -gt 0 ] || [ "$WITH_HOOKS" = "1" ]; then
+if [ "$n_excl" -gt 0 ]; then
   if [ -f "$sl" ] && [ "$PRIOR_LOCAL_MANAGED" != "1" ]; then
     echo "  ! .claude/settings.local.json exists and isn't codeforge-managed — not touching it."
-    echo "    (skipped auto-isolation / gate hook; remove that file and re-run, or edit it by hand.)"
+    echo "    (skipped auto-isolation; remove that file and re-run, or edit it by hand.)"
   else
     excl_json=""
     while IFS= read -r p; do
@@ -245,21 +381,13 @@ if [ "$n_excl" -gt 0 ] || [ "$WITH_HOOKS" = "1" ]; then
     done <<EOF
 $excludes
 EOF
-    hook_block='  "hooks": {
-    "PreToolUse": [
-      { "matcher": "Bash", "hooks": [ { "type": "command", "command": "sh \"$CLAUDE_PROJECT_DIR/shared/scripts/claude-gate-hook.sh\"" } ] }
-    ]
-  }'
     {
       printf '{'
       [ "$n_excl" -gt 0 ] && printf '\n  "claudeMdExcludes": [%s\n  ]' "$excl_json"
-      { [ "$n_excl" -gt 0 ] && [ "$WITH_HOOKS" = "1" ]; } && printf ','
-      [ "$WITH_HOOKS" = "1" ] && printf '\n%s' "$hook_block"
       printf '\n}\n'
     } > "$sl"
     grep -q '^localsettings:managed$' "$manifest" 2>/dev/null || printf 'localsettings:managed\n' >> "$manifest"
     [ "$n_excl" -gt 0 ]      && echo "  + auto-isolated Claude Code from $n_excl ancestor instruction path(s) -> .claude/settings.local.json (--no-isolate to keep inheritance)"
-    [ "$WITH_HOOKS" = "1" ]  && echo "  + Claude gate hook -> .claude/settings.local.json (opt-in, hard-blocks ship on incomplete gates)"
   fi
 elif [ "$PRIOR_LOCAL_MANAGED" = "1" ] && [ -f "$sl" ]; then
   rm -f "$sl"
@@ -274,8 +402,15 @@ touch "$TARGET/.gitignore"
 if ! grep -qx '# codeforge (local state — do not commit)' "$TARGET/.gitignore"; then
   {
     printf '\n# codeforge (local state — do not commit)\n'
-    printf '.DS_Store\n.workflow/\n.claude/settings.local.json\n'
+    printf '.DS_Store\n.codeforge/workflow/\n.claude/settings.local.json\n'
   } >> "$TARGET/.gitignore"
+fi
+
+# Ensure .codeforge/workflow/ is ignored even if the marker block predates it or was edited (idempotent).
+if ! grep -qxF '.codeforge/workflow/' "$TARGET/.gitignore"; then
+  # If the file's last byte isn't a newline, add one first so we don't fuse onto that line.
+  [ -s "$TARGET/.gitignore" ] && [ -n "$(tail -c1 "$TARGET/.gitignore")" ] && printf '\n' >> "$TARGET/.gitignore"
+  printf '.codeforge/workflow/\n' >> "$TARGET/.gitignore"
 fi
 
 # --- warn if the generated config lacks the forge push/PR gate (points at the codeforge
@@ -294,7 +429,7 @@ ok=1
 for p in .claude/skills .agents/skills; do
   [ -e "$TARGET/$p/new-feature/SKILL.md" ] || { echo "  ! discovery FAILED: $p was not generated"; ok=0; }
 done
-for f in AGENTS.md .claude/settings.json .codex/config.toml opencode.json shared/state.template.md; do
+for f in AGENTS.md .claude/settings.json .codex/config.toml opencode.json .codeforge/state.template.md; do
   [ -f "$TARGET/$f" ] || { echo "  ! FAILED: $f was not generated"; ok=0; }
 done
 if [ "$ok" != 1 ]; then

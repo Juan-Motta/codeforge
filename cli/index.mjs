@@ -42,7 +42,7 @@ function Wizard({ version, resolve }) {
   let screen;
   if (step === 'splash') screen = e(Splash, { version, engines, onNext: (l) => { setLang(l); next(); } });
   else if (step === 'review') screen = e(ReviewPolicy, { answers, setAnswers, lang, onNext: next });
-  else if (step === 'gates') screen = e(Gates, { answers, setAnswers, engines, lang, onNext: next });
+  else if (step === 'gates') screen = e(Gates, { answers, setAnswers, lang, onNext: next });
   else if (step === 'project') screen = e(Project, { answers, setAnswers, lang, onNext: next });
   else if (step === 'claude') screen = e(ClaudeAgents, { answers, setAnswers, lang, onNext: next });
   else screen = e(Summary, { answers, lang, onNext: (ok) => resolve(ok ? answers : null) });

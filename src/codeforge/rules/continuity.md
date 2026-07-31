@@ -7,7 +7,7 @@ the reliable "read this first" on any new session or after a context reset.
 
 - **`CONTINUITY.md`** — cross-session state: current focus, the single Next step,
   blockers, and a pointer to the active workflow. Small (a handful of lines).
-- **`.workflow/state.md`** — the active workflow's checklist/gates. Only exists while a
+- **`.codeforge/workflow/state.md`** — the active workflow's checklist/gates. Only exists while a
   workflow runs.
 
 `CONTINUITY.md` **points to** `state.md`; it never duplicates it.
@@ -15,7 +15,7 @@ the reliable "read this first" on any new session or after a context reset.
 ## On session start
 
 Read `CONTINUITY.md` first and resume from **Next step** before doing anything else. If it
-names an active workflow, open that `.workflow/state.md` too and continue there.
+names an active workflow, open that `.codeforge/workflow/state.md` too and continue there.
 
 ## Keeping it current
 
@@ -28,5 +28,5 @@ names an active workflow, open that `.workflow/state.md` too and continue there.
 ## Caveat
 
 Saving the handoff **automatically** right before an unexpected context compaction needs a
-hook (Tier C) and is not covered here. Keep `CONTINUITY.md` current manually so any reset
+per-engine hook and is not covered here. Keep `CONTINUITY.md` current manually so any reset
 point already reflects reality.

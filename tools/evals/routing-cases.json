@@ -231,7 +231,11 @@
       "positive": [
         "run the user journeys against the API and confirm the evidence report passes",
         "exercise the checkout use cases through the real interface and re-check they persist",
-        "drive the order-creation flow via the CLI as a user would and confirm the outcome"
+        "drive the order-creation flow via the CLI as a user would and confirm the outcome",
+        {
+          "prompt": "drive the checkout journey in a real browser and confirm the evidence report passes",
+          "top_k": 1
+        }
       ],
       "negative": [
         {
@@ -246,6 +250,24 @@
           "prompt": "give me a second opinion on this diff and flag any bugs",
           "owner": "review"
         }
+      ]
+    },
+    "goal": {
+      "positive": [
+        "drive this feature from idea to a PR on your own, only check with me to approve the plan and the PR",
+        "run the whole workflow autonomously and hand me a PR-ready branch — don't wait on me between steps",
+        "take this objective and do prd, plan, tests, review, and verify hands-off until it's ready to ship"
+      ],
+      "negative": [
+        {
+          "prompt": "build the CSV export feature end to end with tests and review",
+          "owner": "new-feature"
+        },
+        {
+          "prompt": "the invoice totals are wrong, reproduce and fix the defect",
+          "owner": "fix-bug"
+        },
+        { "prompt": "compare two designs and write the plan", "owner": "plan" }
       ]
     }
   }

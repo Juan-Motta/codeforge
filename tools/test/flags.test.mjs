@@ -14,7 +14,17 @@ test('hasInstallIntent is true for flags and targets, false for bare/--version',
 
 test('installerFlags maps answers to install.sh args', () => {
   const a = { ...makeDefaultAnswers('/tmp/x'), withHooks: true, gitInit: true, noIsolate: false };
-  assert.deepEqual(installerFlags(a), ['/tmp/x', '--with-hooks', '--git-init']);
+  assert.deepEqual(installerFlags(a), ['/tmp/x', '--git-init']);
+});
+
+test('installerFlags never emits --with-hooks (retired)', () => {
+  const a = { target: '/x', withHooks: true, gitInit: false, noIsolate: false };
+  assert.ok(!installerFlags(a).includes('--with-hooks'));
+  assert.ok(!nonInteractiveCommand(a).includes('--with-hooks'));
+});
+
+test('--with-hooks is still install-intent (tolerated deprecated no-op)', () => {
+  assert.equal(hasInstallIntent(['--with-hooks']), true);
 });
 
 test('nonInteractiveCommand emits only install.sh-valid tokens (no profile/reviewer)', () => {

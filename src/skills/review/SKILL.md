@@ -21,8 +21,8 @@ State which, and the exact scope (file paths, base ref).
 - Driver Codex → reviewer Claude (`claude -p ...`) or OpenCode.
 - Driver OpenCode → reviewer Claude or Codex.
 
-Use the reviewer model + effort from `shared/rules/models.md`. Give the reviewer the
-target + this instruction: report findings tagged by severity (`shared/rules/severity.md`)
+Use the reviewer model + effort from `.codeforge/rules/models.md`. Give the reviewer the
+target + this instruction: report findings tagged by severity (`.codeforge/rules/severity.md`)
 with location and a concrete fix.
 
 **Invoke the reviewer read-only.** It judges the diff/plan; it must not change it. Use
@@ -30,8 +30,8 @@ read-only permissions (Codex `--sandbox read-only`; Claude/OpenCode: no write/ed
 and hand it the plan/diff as text. Afterward, confirm the working-tree diff is unchanged.
 
 **Single-engine fallback.** If no second engine is available, do a delayed self-review (or
-use a human reviewer) and log a waiver in `.workflow/state.md` — see the fallback in
-`shared/rules/ship-gates.md`. Cross-engine is preferred; the waiver keeps the degradation
+use a human reviewer) and log a waiver in `.codeforge/workflow/state.md` — see the fallback in
+`.codeforge/rules/ship-gates.md`. Cross-engine is preferred; the waiver keeps the degradation
 explicit, not silent.
 
 ## 3. Collect findings
@@ -42,7 +42,14 @@ treat it as a failed review — re-run, do not fabricate a verdict.
 ## 4. Act and record
 
 - Resolve all P0/P1/P2 (P3 optional). Re-run the reviewer until a pass is clean.
-- Record each iteration and its result in `.workflow/state.md` (which engine, findings).
+- Record each iteration and its result in `.codeforge/workflow/state.md` (which engine, findings).
+
+## Under `/goal` (owner=goal)
+
+Under `owner=goal`, perform **exactly one** read-only reviewer pass and return the severity-tagged
+findings. Do **NOT** do step 4's "resolve, re-run, record each iteration" — `/goal` owns the loop:
+it decides iterations, writes the review-log lines, and enforces the breaker
+(`.codeforge/rules/execution.md`). No looping, no state writes from this skill.
 
 ## Common rationalizations
 

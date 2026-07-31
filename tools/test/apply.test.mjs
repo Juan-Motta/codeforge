@@ -8,10 +8,10 @@ import { applyModels, applyProfile, applyProject, applyClaudeAgents, applyExecut
 
 function scaffoldTarget() {
   const dir = mkdtempSync(join(tmpdir(), 'cf-apply-'));
-  mkdirSync(join(dir, 'shared', 'rules'), { recursive: true });
-  writeFileSync(join(dir, 'shared', 'rules', 'models.md'),
+  mkdirSync(join(dir, '.codeforge', 'rules'), { recursive: true });
+  writeFileSync(join(dir, '.codeforge', 'rules', 'models.md'),
     '# Models\n<!-- codeforge:review-policy:start -->\nDefault reviewer(s): OLD\n<!-- codeforge:review-policy:end -->\n');
-  writeFileSync(join(dir, 'shared', 'state.template.md'), '- **Profile:** standard  <!-- comment -->\n');
+  writeFileSync(join(dir, '.codeforge', 'state.template.md'), '- **Profile:** standard  <!-- comment -->\n');
   writeFileSync(join(dir, 'PROJECT.md'), '## Special rules\n\n_(fill in)_\n');
   return dir;
 }
@@ -25,7 +25,7 @@ test('applyModels rewrites the managed block idempotently', () => {
   };
   applyModels(dir, answers);
   applyModels(dir, answers); // idempotent
-  const md = readFileSync(join(dir, 'shared', 'rules', 'models.md'), 'utf8');
+  const md = readFileSync(join(dir, '.codeforge', 'rules', 'models.md'), 'utf8');
   assert.match(md, /Default reviewer\(s\): codex/i);
   assert.match(md, /Council advisors:/);
   assert.match(md, /kimi-k3/);
@@ -36,7 +36,7 @@ test('applyModels rewrites the managed block idempotently', () => {
 test('applyProfile sets the profile in state.template.md', () => {
   const dir = scaffoldTarget();
   applyProfile(dir, { profile: 'light' });
-  const md = readFileSync(join(dir, 'shared', 'state.template.md'), 'utf8');
+  const md = readFileSync(join(dir, '.codeforge', 'state.template.md'), 'utf8');
   assert.match(md, /\*\*Profile:\*\* light/);
 });
 
@@ -74,6 +74,32 @@ test('applyClaudeAgents writes an agent file with the chosen model when subagent
   const f = readFileSync(join(dir, '.claude', 'agents', 'codeforge-implementer.md'), 'utf8');
   assert.match(f, /^model: sonnet$/m);
   assert.match(f, /name: codeforge-implementer/);
+});
+
+test('generated implementer agent is commit_policy-aware in its BODY (not just description)', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-cp-'));
+  mkdirSync(join(dir, '.claude'), { recursive: true });
+  applyClaudeAgents(dir, { claude: { subagents: true, model: { model: 'sonnet', effort: 'high' } } });
+  const f = readFileSync(join(dir, '.claude', 'agents', 'codeforge-implementer.md'), 'utf8');
+  const body = f.split('\n---\n').slice(1).join('\n---\n');   // everything after frontmatter
+  assert.match(body, /commit_policy/);
+  assert.match(body, /per-task/);                             // per-task branch present (body)
+  assert.match(body, /commit sha/i);                          // ...reports the commit sha (only per-task branch)
+  assert.match(body, /defer[\s\S]*(do NOT commit|stage[^\n]*only)/i); // defer branch: stage only (body)
+  assert.doesNotMatch(body, /make it pass with the minimal change, run the covering tests, commit,/); // no unconditional commit
+  assert.match(f, /^model: sonnet$/m);                        // still parameterized
+  assert.match(f, /name: codeforge-implementer/);
+});
+
+test('applyClaudeAgents overwrites a stale (pre-commit_policy) agent file', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-stale-'));
+  mkdirSync(join(dir, '.claude', 'agents'), { recursive: true });
+  const p = join(dir, '.claude', 'agents', 'codeforge-implementer.md');
+  writeFileSync(p, '---\nname: codeforge-implementer\nmodel: old\n---\n…runs the covering tests, commit, then report the commit sha.\n');
+  applyClaudeAgents(dir, { claude: { subagents: true, model: { model: 'sonnet' } } });
+  const f = readFileSync(p, 'utf8');
+  assert.match(f, /commit_policy/);            // refreshed
+  assert.match(f, /^model: sonnet$/m);         // and re-parameterized
 });
 
 test('applyClaudeAgents is a no-op for inline mode', () => {

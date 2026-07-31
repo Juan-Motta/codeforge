@@ -2,7 +2,7 @@
 
 Which boxes are required before an outward action (`git commit`, `git push`,
 `gh pr create`) depends on the **gate profile** of the active workflow. The skill records
-its profile in `.workflow/state.md`; `finish-branch` validates the active profile before
+its profile in `.codeforge/workflow/state.md`; `finish-branch` validates the active profile before
 shipping.
 
 ## Gate profiles
@@ -16,8 +16,8 @@ shipping.
       fixes always require it.
 - [ ] Tests written (TDD) and passing
 - [ ] Code review clean — no open P0/P1/P2 (`severity.md`), cross-engine
-- [ ] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling) and UI-only changes (no v1 adapter)
-- [ ] `.workflow/state.md` updated
+- [ ] E2E verified via verify-e2e (report: docs/e2e/reports/<...>.md) — `N/A: <reason>` allowed for purely internal changes (migration, refactor, tooling)
+- [ ] `.codeforge/workflow/state.md` updated
 
 > The `E2E verified` box is an **Attested** signal: it asserts that a verify-e2e run
 > produced a `VERDICT: PASS` report committed under `docs/e2e/reports/`. `check-gates`
@@ -67,15 +67,16 @@ ancestor directory. A committed report with a hand-typed `VERDICT: PASS` and no 
 behind it satisfies every check above. This is the **Attested** tier (see the Verified /
 Attested / Advisory ladder below) — the record's *shape* is validated, not the underlying
 claim. Only the **Verified** tier — an out-of-turn CI job that re-runs `verify-e2e` itself
-against the PR commit, independent of the agent's say-so — is bypass-proof against a
-bad-faith or mistaken attestation.
+against the PR commit, independent of the agent's say-so — is bad-faith-**resistant** (never
+"proof") against a bad-faith or mistaken attestation, and only once it is activated and made a
+required, bypass-protected check per `docs/ci-templates/README.md`.
 
 The `— N/A:` escape is an **exact em-dash form** (em-dash, space, `N/A:`, non-empty reason).
 A bare `N/A:`, a `- N/A:`, or a backticked `` `N/A:` `` inside explanatory text does **not**
 count as the escape — those fall through to the report-path checks above.
 
-The active workflow records its profile in `.workflow/state.md` (the **Profile** field —
-see `shared/state.template.md`); `finish-branch` validates that profile's boxes before shipping.
+The active workflow records its profile in `.codeforge/workflow/state.md` (the **Profile** field —
+see `.codeforge/state.template.md`); `finish-branch` validates that profile's boxes before shipping.
 
 ### `light` — used by `quick-fix`
 
@@ -98,7 +99,7 @@ If no second engine is available, satisfy the review items by either:
   `severity.md` as if it were someone else's; or
 - a **human reviewer**.
 
-Then log a waiver in `.workflow/state.md`, e.g.:
+Then log a waiver in `.codeforge/workflow/state.md`, e.g.:
 `Review: single-engine self-review (no second engine available) — <date>`
 
 Cross-engine review is the default and preferred (real model diversity). The waiver just
@@ -110,10 +111,29 @@ Be precise about the strength of each gate signal. A claim is only as strong as 
 produced it:
 
 - **Verified** — an out-of-turn check *recomputed* the fact, independent of the agent's
-  say-so. Example: CI ran the test suite at the exact PR commit and it passed. This is the
-  strongest signal, and the only one that survives a bad-faith or mistaken agent.
+  say-so. The concrete, unconditional guarantee codeforge ships for this: `docs/ci-templates/
+  gates.yml` — once copied into `.github/workflows/`, its test step filled in, and made a
+  **required status check** under branch protection (bypass disabled) — has CI independently
+  re-run the project's declared test command on the PR's merge result, outside any agent's
+  turn. That alone is real, but it is not yet resistant to a bad-faith actor. It becomes
+  **resistant** (never "proof") to a bad-faith or mistaken agent only when **all** of the
+  following also hold: (1) the workflow file itself is **CODEOWNERS-protected** with required
+  code-owner review — otherwise a PR can edit `.github/workflows/gates.yml` in the same PR it's
+  supposed to gate, and GitHub runs that PR's own (weakened) version; (2) the **test-defining
+  files** (e.g. `package.json`, test config/harness) are CODEOWNERS-protected too — otherwise a
+  PR can rewrite what `gates` actually runs instead of touching the workflow file itself; (3)
+  **"Dismiss stale pull request approvals when new commits are pushed"** is enabled — otherwise
+  an earlier approval survives a later commit that weakens the gate; (4) **"Require branches to
+  be up to date before merging"** (strict checks) is enabled, or a merge queue is used —
+  otherwise the base can advance after the check ran and the tested merge commit is not the
+  code that actually lands; and (5) "do not allow bypassing" covers admins. Even with all five
+  in place, this only routes the diff to a human code owner — it still depends on that human
+  actually reading the change, not rubber-stamping it, and it does not defend against a PR that
+  rewrites its own declared test command in a way a reviewer waves through. Absent any one of
+  (1)-(5), the tier degrades toward Attested. See `docs/ci-templates/README.md` for setup.
+  Repo/org admins can still bypass branch protection unless you've configured otherwise.
 - **Attested** — an agent or human *claimed* it and something validated the claim's *shape*,
-  not its truth. A `- [x]` box in `.workflow/state.md`, or `check-gates.sh` reporting the
+  not its truth. A `- [x]` box in `.codeforge/workflow/state.md`, or `check-gates.sh` reporting the
   checklist is complete, is attested: it confirms the record says "done", not that the work
   was done. A file that says `reviewer_engine: codex` is not proof Codex reviewed anything.
 - **Advisory** — present only as an instruction the agent is asked to follow. The workflow
@@ -123,21 +143,24 @@ produced it:
 move a claim up the ladder — e.g. bind "tests passing" to CI (verified) rather than a box
 someone ticked (attested).
 
-## How enforcement works here (advisory + Tier-B check + native prompt)
+## How enforcement works here (advisory + Tier-B check + native prompt, locally — CI is the real gate)
 
-**Be honest about what this is: discipline, not a hard gate.** Nothing conditionally
-blocks a commit when a box is unchecked. Three things stand in — none of them a hard block:
+**Be honest about what this is: locally, discipline, not a hard gate.** Nothing conditionally
+blocks a commit when a box is unchecked on your machine. Three things stand in locally — none
+of them a hard block — plus one thing that actually binds, in CI:
 
 1. **Advisory (all engines):** you are instructed — here and in the workflow skill — not
    to ship until the profile's boxes pass. Honor it.
 2. **Deterministic Tier-B check (all engines):** `finish-branch` runs
-   `shared/scripts/check-gates.sh` (`.ps1` on Windows), which reads `.workflow/state.md` and
-   exits non-zero listing any unchecked box. This turns "eyeball the file" into "run a
-   command that fails loudly" — a much harder thing to rationalize past, and the *same*
-   command a human or CI can run. It is still **attested** (it validates the record, not the
-   work) and still **skippable** (Tier B runs only when invoked — it is not a hook). For a
-   real *verified* gate, run it in CI with branch protection so the check binds to the PR
-   commit outside the agent's turn.
+   `.codeforge/scripts/check-gates.sh` (`.ps1` on Windows), which reads `.codeforge/workflow/state.md` and
+   exits non-zero listing any unchecked box **or any missing required gate**. It validates the
+   profile's gates by **identity, not just count** — a checklist with the right number of
+   checked boxes but renamed or omitted gates is rejected, so the box wording must name each
+   required gate (the canonical wording lives in `.codeforge/state.template.md`). This turns
+   "eyeball the file" into "run a command that fails loudly" — a much harder thing to
+   rationalize past, and the *same* command a human or CI can run. It is still **attested** (it
+   validates the record, not the work) and still **skippable** (Tier B runs only when invoked —
+   it is not a hook).
 3. **Best-effort native prompt (per engine):** each engine can prompt for human approval
    on outward commands — but it reads **no** gate state and matches commands by pattern,
    so it is bypassable (e.g. `git -C . push`, a PR via API, another tool):
@@ -149,16 +172,20 @@ blocks a commit when a box is unchecked. Three things stand in — none of them 
 
 The prompt shows the human a generic "allow this command?", **not** the checklist — so it
 is a commit-confirmation, not proof the gates are green. The approver must
-**independently check `.workflow/state.md` before approving** (or run `check-gates.sh`).
+**independently check `.codeforge/workflow/state.md` before approving** (or run `check-gates.sh`).
 
-### Opt-in hard block (Tier C, Claude Code only)
-
-For the one engine that supports it, `install.sh --with-hooks` (`-WithHooks` on PowerShell)
-installs a Claude Code `PreToolUse` hook into `.claude/settings.local.json` that runs
-`shared/scripts/claude-gate-hook.sh` — the same `check-gates.sh` behind a hook — and **exits 2
-to actually block** `git commit` / `git push` / `gh pr create` when the gates are incomplete.
-This is the only place codeforge can hard-block. It is deliberately **not the default**: it's
-per-developer (the local settings file is gitignored), Claude-Code-specific (breaks the
-cross-engine promise, so it stays opt-in), and fails **open** if it can't verify. The gate is
-still *attested* — it confirms the recorded boxes, not the underlying work. Codex/OpenCode have
-the mechanism (see `docs/extending.md` Tier C) but no adapter ships yet.
+4. **The one mechanism that can bind for everyone: CI + branch protection.** codeforge ships
+   `docs/ci-templates/gates.yml` as the concrete **Verified**-tier mechanism: CI independently
+   re-runs the project's declared test command on the PR merge result, outside any agent's
+   turn. Copy it into `.github/workflows/gates.yml`, fill in its test step, and make it a
+   **required status check** with branch protection ("do not allow bypassing" enabled) — that
+   alone means no local skip or engine choice can dodge the rerun. It becomes bad-faith-
+   **resistant** (never "proof") — and *can* bind for every clone and every merge into the
+   protected branch — only once the full setup in `docs/ci-templates/README.md` is also in
+   place: the workflow file **and** the test-defining files are CODEOWNERS-protected, "Dismiss
+   stale pull request approvals" is enabled, strict/up-to-date checks (or a merge queue) are
+   on, and bypass is disabled for admins too — and even then it still depends on a human
+   actually reading those diffs. See the preconditions under "Verified" above. Repo/org
+   admins can still bypass branch protection unless you've configured otherwise — decide
+   who that should be. There are no per-engine runtime hooks in codeforge; local
+   enforcement is advisory + the Tier-B check above.

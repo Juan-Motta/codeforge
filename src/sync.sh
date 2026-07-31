@@ -17,7 +17,7 @@
 #   configs/claude/settings.json  → .claude/settings.json
 #   configs/codex/config.toml     → .codex/config.toml
 #   configs/opencode.json         → opencode.json (OpenCode reads it from the root)
-#   shared/rules/*.md             → discipline (read in place by the agent; not copied here)
+#   .codeforge/rules/*.md             → discipline (read in place by the agent; not copied here)
 #
 # Skill discovery paths differ per engine (verified against each CLI's docs):
 #   Claude Code → .claude/skills   |   Codex → .agents/skills   |   OpenCode → any of
