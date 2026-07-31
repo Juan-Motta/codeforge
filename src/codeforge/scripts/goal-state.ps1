@@ -3,7 +3,7 @@
 param([string]$Cmd = '', [string]$A2 = '', [string]$A3 = '')
 $ErrorActionPreference = 'Stop'
 $PSNativeCommandUseErrorActionPreference = $false
-function DefaultFile($f) { if ($f) { $f } else { '.workflow/state.md' } }
+function DefaultFile($f) { if ($f) { $f } else { '.codeforge/workflow/state.md' } }
 function Section([string]$header, [string]$file) {
   $in = $false
   foreach ($raw in Get-Content -LiteralPath $file) {

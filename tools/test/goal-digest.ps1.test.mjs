@@ -6,8 +6,8 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SH  = fileURLToPath(new URL('../../src/shared/scripts/goal-digest.sh',  import.meta.url));
-const PS1 = fileURLToPath(new URL('../../src/shared/scripts/goal-digest.ps1', import.meta.url));
+const SH  = fileURLToPath(new URL('../../src/codeforge/scripts/goal-digest.sh',  import.meta.url));
+const PS1 = fileURLToPath(new URL('../../src/codeforge/scripts/goal-digest.ps1', import.meta.url));
 const hasSh   = spawnSync('sh',   ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0;
 const hasPwsh = spawnSync('pwsh', ['-v'],           { stdio: 'ignore' }).status === 0;
 

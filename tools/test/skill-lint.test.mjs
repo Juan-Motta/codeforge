@@ -8,14 +8,16 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { lintSkills } from '../lib/skill-lint.mjs';
 
-/** Build a minimal repo layout: src/skills/<name>/SKILL.md + src/CLAUDE.md + src/shared/rules. */
+/** Build a minimal repo layout: src/skills/<name>/SKILL.md + src/CLAUDE.md + src/codeforge/rules. */
 function scaffold(skills, { indexSlugs, sharedFiles = ['rules/models.md'] } = {}) {
   const root = mkdtempSync(join(tmpdir(), 'skill-lint-'));
   const src = join(root, 'src');
   const skillsDir = join(src, 'skills');
   mkdirSync(skillsDir, { recursive: true });
   for (const rel of sharedFiles) {
-    const p = join(src, 'shared', rel);
+    // The payload dir has NO dot (src/codeforge/); the installer adds it when copying to
+    // the target, which is why references are written `.codeforge/...`.
+    const p = join(src, 'codeforge', rel);
     mkdirSync(join(p, '..'), { recursive: true });
     writeFileSync(p, '# shared\n');
   }
@@ -101,14 +103,14 @@ test('engine names (Claude/Codex/OpenCode) are NOT flagged as model ids', () => 
 });
 
 test('broken shared/ reference is an error', () => {
-  const s = scaffold({ good: GOOD + '\nSee shared/rules/does-not-exist.md for more.\n' });
+  const s = scaffold({ good: GOOD + '\nSee .codeforge/rules/does-not-exist.md for more.\n' });
   const res = run(s);
   assert.ok(errorsFor(res, 'good').some((e) => /broken reference/.test(e)));
   rmSync(s.root, { recursive: true, force: true });
 });
 
 test('valid shared/ reference passes', () => {
-  const s = scaffold({ good: GOOD + '\nSee shared/rules/models.md for ids.\n' });
+  const s = scaffold({ good: GOOD + '\nSee .codeforge/rules/models.md for ids.\n' });
   const res = run(s);
   assert.ok(!errorsFor(res, 'good').some((e) => /broken reference/.test(e)));
   rmSync(s.root, { recursive: true, force: true });

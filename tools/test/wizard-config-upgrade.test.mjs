@@ -1,7 +1,7 @@
 // The setup wizard's answers must survive `--upgrade`.
 //
 // THE BUG THIS PINS: the wizard wrote its answers straight into two MANAGED files —
-// `shared/rules/models.md` (review policy block) and `shared/state.template.md`
+// `.codeforge/rules/models.md` (review policy block) and `.codeforge/state.template.md`
 // (`**Profile:**`) — which install.sh/ps1 overwrite unconditionally (a bare `cp` over
 // `shared/rules/*.md` and over `state.template.md`). So `npx @jualopezmo/codeforge --upgrade`
 // silently reset a team's chosen reviewer and gate profile back to the shipped defaults, with no
@@ -62,8 +62,8 @@ function seedProjectPolicy(target) {
 }
 
 function assertPolicyPreserved(target, label) {
-  const models = readFileSync(join(target, 'shared', 'rules', 'models.md'), 'utf8');
-  const state = readFileSync(join(target, 'shared', 'state.template.md'), 'utf8');
+  const models = readFileSync(join(target, '.codeforge', 'rules', 'models.md'), 'utf8');
+  const state = readFileSync(join(target, '.codeforge', 'state.template.md'), 'utf8');
 
   assert.match(state, /\*\*Profile:\*\*\s*light/, `${label}: chosen gate profile was reset`);
   assert.ok(!/\*\*Profile:\*\*\s*standard/.test(state), `${label}: state.template.md still carries the default profile`);
@@ -103,13 +103,13 @@ test('install.sh is idempotent over the re-render (second upgrade is byte-stable
     seedProjectPolicy(target);
     install(target, ['--upgrade']);
     const first = {
-      models: readFileSync(join(target, 'shared', 'rules', 'models.md'), 'utf8'),
-      state: readFileSync(join(target, 'shared', 'state.template.md'), 'utf8'),
+      models: readFileSync(join(target, '.codeforge', 'rules', 'models.md'), 'utf8'),
+      state: readFileSync(join(target, '.codeforge', 'state.template.md'), 'utf8'),
       project: readFileSync(join(target, 'PROJECT.md'), 'utf8'),
     };
     install(target, ['--upgrade']);
-    assert.equal(readFileSync(join(target, 'shared', 'rules', 'models.md'), 'utf8'), first.models, 'models.md drifted on re-run');
-    assert.equal(readFileSync(join(target, 'shared', 'state.template.md'), 'utf8'), first.state, 'state.template.md drifted on re-run');
+    assert.equal(readFileSync(join(target, '.codeforge', 'rules', 'models.md'), 'utf8'), first.models, 'models.md drifted on re-run');
+    assert.equal(readFileSync(join(target, '.codeforge', 'state.template.md'), 'utf8'), first.state, 'state.template.md drifted on re-run');
     assert.equal(readFileSync(join(target, 'PROJECT.md'), 'utf8'), first.project, 'PROJECT.md drifted on re-run');
   } finally {
     rmSync(target, { recursive: true, force: true });
@@ -130,8 +130,8 @@ test('a target with no Review policy section still upgrades cleanly (framework d
     writeFileSync(path, md.slice(0, start) + (nextRel === -1 ? '' : md.slice(start + 1 + nextRel + 1)));
 
     install(target, ['--upgrade']);
-    const models = readFileSync(join(target, 'shared', 'rules', 'models.md'), 'utf8');
-    const state = readFileSync(join(target, 'shared', 'state.template.md'), 'utf8');
+    const models = readFileSync(join(target, '.codeforge', 'rules', 'models.md'), 'utf8');
+    const state = readFileSync(join(target, '.codeforge', 'state.template.md'), 'utf8');
     assert.match(models, /<!-- codeforge:review-policy:start -->[\s\S]*Default reviewer\(s\):[\s\S]*<!-- codeforge:review-policy:end -->/);
     assert.match(state, /\*\*Profile:\*\*\s*standard/);
   } finally {
@@ -147,7 +147,7 @@ test('an unknown gate profile in PROJECT.md is rejected, not written through', (
     const path = join(target, 'PROJECT.md');
     writeFileSync(path, readFileSync(path, 'utf8').replace('Gate profile: light', 'Gate profile: bogus'));
     install(target, ['--upgrade']);
-    const state = readFileSync(join(target, 'shared', 'state.template.md'), 'utf8');
+    const state = readFileSync(join(target, '.codeforge', 'state.template.md'), 'utf8');
     // check-gates exits 3 on an unknown profile, so writing one through would hand the user a
     // template that cannot pass its own gate. Fall back to the shipped default instead.
     assert.match(state, /\*\*Profile:\*\*\s*standard/, 'a bogus profile must not reach state.template.md');
@@ -174,7 +174,7 @@ test('a hostile reviewer label survives byte-for-byte through both installers', 
     writeFileSync(path, readFileSync(path, 'utf8').replace(/^Default reviewer\(s\):.*$/m, () => `Default reviewer(s): ${HOSTILE}`));
     install(sh, ['--upgrade']);
 
-    const shModels = readFileSync(join(sh, 'shared', 'rules', 'models.md'), 'utf8');
+    const shModels = readFileSync(join(sh, '.codeforge', 'rules', 'models.md'), 'utf8');
     assert.ok(shModels.includes(HOSTILE), `install.sh mangled the value:\n${shModels.match(/^Default reviewer.*$/m)?.[0]}`);
 
     if (hasPwsh) {
@@ -183,7 +183,7 @@ test('a hostile reviewer label survives byte-for-byte through both installers', 
       installPs1(ps);
       writeFileSync(join(ps, 'PROJECT.md'), readFileSync(path, 'utf8'));
       installPs1(ps, ['-Upgrade']);
-      const psModels = readFileSync(join(ps, 'shared', 'rules', 'models.md'), 'utf8');
+      const psModels = readFileSync(join(ps, '.codeforge', 'rules', 'models.md'), 'utf8');
       assert.ok(psModels.includes(HOSTILE), 'install.ps1 mangled the value');
       // Parity here is SEMANTIC, not byte-exact: `Set-Content` re-serializes with the platform EOL,
       // so on a Windows runner ps1 emits CRLF while bash emits LF. Comparing raw bytes would fail

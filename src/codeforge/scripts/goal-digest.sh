@@ -14,7 +14,7 @@ git -C "$repo" rev-parse --git-dir >/dev/null 2>&1 || { echo "goal-digest: not a
 git -C "$repo" cat-file -e "${base}^{commit}" 2>/dev/null || { echo "goal-digest: bad base" >&2; exit 3; }
 
 set -f
-set -- ':(exclude).workflow/*' ':(exclude)docs/e2e/reports/*' ':(exclude)CONTINUITY.md' \
+set -- ':(exclude).codeforge/workflow/*' ':(exclude)docs/e2e/reports/*' ':(exclude)CONTINUITY.md' \
        ':(exclude)docs/CHANGELOG.md' ':(exclude)VERSION'
 DIFF="diff --full-index --no-ext-diff --no-textconv --default-prefix --no-renames --no-color"
 

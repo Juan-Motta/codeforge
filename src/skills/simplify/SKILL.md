@@ -30,7 +30,7 @@ big-bang refactor hides which step broke something.
 
 ## 4. Verify behavior is identical
 
-Full suite green, and actually exercise the changed path (`shared/rules/tdd.md` refactor
+Full suite green, and actually exercise the changed path (`.codeforge/rules/tdd.md` refactor
 discipline). The diff should read as *same behavior, less code*: less duplication, shallower
 nesting, clearer names, no dead code.
 

@@ -26,4 +26,4 @@ Score each candidate approach (Low / Med / High, with a one-line why):
 5. If the cheapest falsifying test is quick (say, under ~30 min), **spike it first** and
    let evidence decide.
 
-Record the table and the chosen approach in the plan / `.workflow/state.md`.
+Record the table and the chosen approach in the plan / `.codeforge/workflow/state.md`.

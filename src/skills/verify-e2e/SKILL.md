@@ -359,7 +359,7 @@ UC (ID, classification, interface, trimmed+redacted output, persistence re-check
 finalized locator map (role/testid/text → control), the exact assertions made, sanitized
 (redacted) observations, the `@playwright/test` package + browser versions, and the command +
 exit status. Screenshot/trace artifact paths (under a gitignored directory such as
-`.workflow/e2e-run/`) may be referenced but are **local-only, not reviewable proof** — they
+`.codeforge/workflow/e2e-run/`) may be referenced but are **local-only, not reviewable proof** — they
 are never committed, so a reviewer without local access cannot see them. The committed text
 digest is the evidence that actually counts.
 

@@ -2,7 +2,7 @@
 
 `gates.yml` is codeforge's **Verified tier**: CI independently re-runs your project's declared
 test command on the PR **merge result**, outside any agent's turn (local git hooks are per-clone
-and skip server-side merges; see `shared/rules/ship-gates.md`). That alone is real, but it only
+and skip server-side merges; see `.codeforge/rules/ship-gates.md`). That alone is real, but it only
 becomes **bad-faith-resistant** — never "proof" — against an actor trying to merge broken or
 untested code once the repo is fully configured per the steps below. It does not defend against
 a PR that also rewrites its own declared test command; see the CODEOWNERS note in step 4.

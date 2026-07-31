@@ -25,13 +25,13 @@ function extractFenced(skillText) {
 
 test('the embedded harness, extracted from an INSTALLED skill, runs with no tools/ dependency', { skip: skipReason() }, () => {
   const target = mkdtempSync(join(tmpdir(), 'cf-portab-'));
-  // scratch run dir lives INSIDE the repo under the gitignored .workflow/ (the harness's
+  // scratch run dir lives INSIDE the repo under the gitignored .codeforge/workflow/ (the harness's
   // git check-ignore guard requires an ignored artifact dir; running from repo root also lets
   // createRequire resolve @playwright/test from codeforge's own node_modules).
-  // .workflow/e2e-run is gitignored and NOT guaranteed to exist in a fresh checkout/CI runner —
+  // .codeforge/workflow/e2e-run is gitignored and NOT guaranteed to exist in a fresh checkout/CI runner —
   // create the parent UNCONDITIONALLY before mkdtempSync (else ENOENT; masked locally by stale dirs).
-  mkdirSync(join(REPO, '.workflow', 'e2e-run'), { recursive: true });
-  const scratch = mkdtempSync(join(REPO, '.workflow', 'e2e-run', 'portab-'));
+  mkdirSync(join(REPO, '.codeforge/workflow', 'e2e-run'), { recursive: true });
+  const scratch = mkdtempSync(join(REPO, '.codeforge/workflow', 'e2e-run', 'portab-'));
   try {
     execFileSync('bash', [join(REPO, 'install.sh'), target], { cwd: REPO, stdio: 'pipe' });
     const installedSkill = readFileSync(join(target, '.claude/skills/verify-e2e/SKILL.md'), 'utf8');

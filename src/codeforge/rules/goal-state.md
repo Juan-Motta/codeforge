@@ -1,7 +1,7 @@
 # /goal state & log schemas
 
-Fixed-order, single-line records `/goal` writes to `.workflow/state.md` and the shipped
-`shared/scripts/goal-state.sh` / `goal-digest.sh` parse. Single active loop (v1) — **no `nonce`**.
+Fixed-order, single-line records `/goal` writes to `.codeforge/workflow/state.md` and the shipped
+`.codeforge/scripts/goal-state.sh` / `goal-digest.sh` parse. Single active loop (v1) — **no `nonce`**.
 
 ## `## /goal loop` (one key/value row per field)
 
@@ -15,13 +15,13 @@ Fixed-order, single-line records `/goal` writes to `.workflow/state.md` and the 
 | base_sha  | merge-base SHA at loop start (the digest base)                     |
 | gate1     | `approved ts=<ISO> prd=<path>` (empty until approved)              |
 
-Read fields with `sh shared/scripts/goal-state.sh field <name>`.
+Read fields with `sh .codeforge/scripts/goal-state.sh field <name>`.
 
 ## `## Review log` line
 
 `- loop=plan|code — round=<N> — kind=round|recert|cert — reviewer=<engine|self> — result=clean|P0=a/P1=b/P2=c — digest=<sha> — ts=<ISO>`
 
-The breaker counts `kind=round` lines per loop: `sh shared/scripts/goal-state.sh round-count <plan|code>`.
+The breaker counts `kind=round` lines per loop: `sh .codeforge/scripts/goal-state.sh round-count <plan|code>`.
 Certification digest = the `digest=` on the latest `kind=cert` line for the loop.
 
 ## `## /goal loop` markers + gate2 line
@@ -35,4 +35,4 @@ Certification digest = the `digest=` on the latest `kind=cert` line for the loop
 
 - Blocker (HALT): `- [ ] BLOCKER — <phase> — <reason> — ts=<ISO>`. HALT is terminal for automation.
 - Ship-red counter: `- ATTEMPT ship-red — n=<k> — ts=<ISO>`; bump with
-  `sh shared/scripts/goal-state.sh ship-red-bump` before each ship-side `check-gates` red; `n>=2` → HALT.
+  `sh .codeforge/scripts/goal-state.sh ship-red-bump` before each ship-side `check-gates` red; `n>=2` → HALT.

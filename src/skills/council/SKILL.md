@@ -40,7 +40,7 @@ Send each advisor the **same framed question** (plus its lens), and do it
 **independently** — an advisor must not see another's answer, or you lose the diversity.
 Use each engine's **non-interactive** mode (Codex `codex exec`, Claude `claude -p`, OpenCode
 `opencode run`), spanning all three engines for max diversity. The exact **model IDs, effort,
-and read-only invocation** for each engine live in one place — `shared/rules/models.md` —
+and read-only invocation** for each engine live in one place — `.codeforge/rules/models.md` —
 so use them from there; do not hard-code them here. Advisors must run **read-only** (they
 advise, they don't edit) per the read-only invocation in `models.md`.
 
@@ -61,7 +61,7 @@ As the driver, produce the verdict:
 ## 5. Record
 
 Write the framed question, each advisor's one-line position, the verdict, and the minority
-report into `.workflow/state.md` (or the relevant plan/decision doc), so the decision is
+report into `.codeforge/workflow/state.md` (or the relevant plan/decision doc), so the decision is
 auditable later.
 
 ## Common rationalizations

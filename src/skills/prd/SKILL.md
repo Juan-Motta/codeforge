@@ -37,7 +37,7 @@ everything downstream.
 ## 4. Hand off
 
 The PRD feeds `plan` (design) → `new-feature` (build). Reference it from
-`.workflow/state.md`.
+`.codeforge/workflow/state.md`.
 
 ## Common rationalizations
 

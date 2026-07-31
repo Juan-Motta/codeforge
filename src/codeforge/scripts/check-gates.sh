@@ -1,28 +1,28 @@
 #!/bin/sh
 # check-gates.sh — deterministic ship-gate checklist validator (Tier B).
 #
-# Reads .workflow/state.md and confirms every ship-gate box for the active
+# Reads .codeforge/workflow/state.md and confirms every ship-gate box for the active
 # profile is checked (or explicitly N/A). Exit 0 = the recorded checklist is
 # complete; non-zero + a list = unmet boxes.
 #
-#   sh shared/scripts/check-gates.sh                 # reads .workflow/state.md
-#   sh shared/scripts/check-gates.sh path/to/state.md
+#   sh .codeforge/scripts/check-gates.sh                 # reads .codeforge/workflow/state.md
+#   sh .codeforge/scripts/check-gates.sh path/to/state.md
 #
 # HONESTY: this verifies the RECORD, not the underlying work. A checked box is an
 # *attestation* by whoever checked it — the script confirms the checklist is
 # complete, it cannot confirm the tests really passed or the change was really
-# exercised. See shared/rules/ship-gates.md (Verified / Attested / Advisory).
+# exercised. See .codeforge/rules/ship-gates.md (Verified / Attested / Advisory).
 # It runs only when the agent (or a human, or CI) chooses to call it — Tier B is
 # deterministic but still advisory; it does not block a commit on its own.
 #
 # Exit codes: 0 = complete · 1 = unmet boxes · 3 = cannot read state/checklist.
 set -eu
 
-STATE="${1:-.workflow/state.md}"
+STATE="${1:-.codeforge/workflow/state.md}"
 
 if [ ! -f "$STATE" ]; then
   echo "check-gates: no state file at '$STATE' — cannot verify gates." >&2
-  echo "  Start a workflow (copy shared/state.template.md) before shipping." >&2
+  echo "  Start a workflow (copy .codeforge/state.template.md) before shipping." >&2
   exit 3
 fi
 
@@ -57,9 +57,9 @@ fi
 #       it. Each anchor is matched at the START of a box (right after the "- [x] "), so only a
 #       gate's leading canonical words count — free-form trailing text (a report path, an
 #       "— N/A: <reason>", a note) can never satisfy another gate's anchor. Anchors mirror the
-#       canonical wording in shared/state.template.md / ship-gates.md; each line is
+#       canonical wording in .codeforge/state.template.md / ship-gates.md; each line is
 #       "ANCHOR;Human label" (';' never appears inside an anchor). No POSIX `\b` (BSD/GNU parity).
-# Required counts mirror shared/rules/ship-gates.md (standard = 6, light = 3).
+# Required counts mirror .codeforge/rules/ship-gates.md (standard = 6, light = 3).
 case "$profile" in
   standard)
     required=6
@@ -80,7 +80,7 @@ still trivial;Still trivial' ;;
 esac
 if [ "$total" -lt "$required" ]; then
   echo "check-gates: profile '$profile' requires $required gates but the checklist has only $total —" >&2
-  echo "  required ship-gate boxes are missing. Restore them from shared/state.template.md." >&2
+  echo "  required ship-gate boxes are missing. Restore them from .codeforge/state.template.md." >&2
   exit 1
 fi
 
@@ -135,7 +135,7 @@ if [ -n "$missing" ]; then
     printf '  \342\234\227 %s\n' "$ml" >&2
   done
   echo "  The checklist has $total boxes but not the profile's canonical gates. Restore them" >&2
-  echo "  from shared/state.template.md (the box wording must name each required gate)." >&2
+  echo "  from .codeforge/state.template.md (the box wording must name each required gate)." >&2
   exit 1
 fi
 

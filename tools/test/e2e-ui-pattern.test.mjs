@@ -30,7 +30,7 @@ function skipReason() {
 // e.g. skill-embed-portability's portab-* dirs under the same base).
 const createdArtifactDirs = [];
 function gitignoredArtifactDir() {
-  const base = join(REPO, '.workflow', 'e2e-run');
+  const base = join(REPO, '.codeforge/workflow', 'e2e-run');
   mkdirSync(base, { recursive: true });
   const dir = mkdtempSync(join(base, 'test-'));
   createdArtifactDirs.push(dir);
@@ -86,7 +86,7 @@ test('App root escaping the repo → FAIL_INFRA', { skip: skipReason() }, () => 
   assert.match(r.stdout, /CLASSIFICATION: FAIL_INFRA\s*$/);
 });
 test('non-existent App root (realpath fails) → FAIL_INFRA', { skip: skipReason() }, () => {
-  const rel = join('.workflow', 'e2e-run', 'does-not-exist-' + Date.now());
+  const rel = join('.codeforge/workflow', 'e2e-run', 'does-not-exist-' + Date.now());
   const r = runRef({ E2E_APP_ROOT: rel });
   assert.notEqual(r.status, 0);
   assert.match(r.stdout, /does not exist/i);

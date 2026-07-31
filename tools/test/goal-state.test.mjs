@@ -6,7 +6,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const SH = fileURLToPath(new URL('../../src/shared/scripts/goal-state.sh', import.meta.url));
+const SH = fileURLToPath(new URL('../../src/codeforge/scripts/goal-state.sh', import.meta.url));
 const hasSh = spawnSync('sh', ['-c', 'exit 0'], { stdio: 'ignore' }).status === 0;
 const G = { skip: !hasSh };
 const run = (args, cwd) => execFileSync('sh', [SH, ...args], { cwd }).toString().trim();
