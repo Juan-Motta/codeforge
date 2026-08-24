@@ -8,6 +8,19 @@ development log; it is **not** the seed shipped to installed projects (that live
 
 - _No changes yet._
 
+## 0.7.1 — 2026-08-24
+
+This patch makes the 0.7 release portable across the GNU/Linux and Git-for-Windows environments
+used by CI while preserving the same installed layout and behavior.
+
+- **Portable project-context adoption on GNU and BSD systems.** `install.sh` now queries GNU
+  `stat -c` before the BSD/macOS fallback and validates that the detected file mode is octal before
+  passing it to `chmod`. This prevents GNU `stat -f` filesystem reports from being mistaken for a
+  permission mode when an existing `CLAUDE.md` or `AGENTS.md` is imported into `PROJECT.md`.
+- **CRLF user rules remain byte-stable on Git Bash.** When `.gitignore` has no prior managed block,
+  the installer copies the user-owned file byte-for-byte before appending Codeforge rules instead
+  of routing it through `awk`, which could normalize CRLF lines on Windows.
+
 ## 0.7.0 — 2026-08-24
 
 Codeforge now installs from one canonical `.codeforge/` source, generates clean adapters for

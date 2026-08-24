@@ -1,6 +1,6 @@
 {
   "name": "@jualopezmo/codeforge",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Install one cross-engine AI-coding workflow discipline (research → plan → TDD → cross-engine review → verify → ship) into a project — runs identically on Claude Code, Codex, and OpenCode. Also hosts the framework's own dev tooling (skill linter, routing evals).",
   "bin": {
     "codeforge": "bin/codeforge.mjs"

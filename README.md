@@ -386,8 +386,8 @@ automatically.
 
 ## Status
 
-**v0.7.0 — current release.** Available as
-[`@jualopezmo/codeforge` v0.7.0](https://www.npmjs.com/package/@jualopezmo/codeforge).
+**v0.7.1 — current release.** Available as
+[`@jualopezmo/codeforge` v0.7.1](https://www.npmjs.com/package/@jualopezmo/codeforge).
 
 This iteration adds a **full-screen interactive setup wizard** (Ink/React) with English/Español,
 configurable **reviewers + council advisors**, a Claude Code + Codex **execution mode** (inline

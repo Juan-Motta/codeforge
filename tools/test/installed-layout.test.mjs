@@ -5,7 +5,7 @@
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync, symlinkSync, lstatSync } from 'node:fs';
+import { chmodSync, mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -40,6 +40,33 @@ const installers = [
     run: (t) => execFileSync('pwsh', ['-NoProfile', '-File', join(REPO, 'install.ps1'), '-Target', t], { stdio: 'pipe' }),
   },
 ];
+
+test('install.sh queries GNU stat before the BSD fallback when preserving PROJECT.md mode', { skip: process.platform === 'win32' ? 'POSIX mode semantics only' : false }, () => {
+  const target = freshTarget('cf-layout-stat-mode-');
+  const fakeBin = mkdtempSync(join(tmpdir(), 'cf-layout-stat-bin-'));
+  const fakeStat = join(fakeBin, 'stat');
+  try {
+    writeFileSync(join(target, 'CLAUDE.md'), '# Existing project context\n\nKeep the mode.\n');
+    writeFileSync(fakeStat, `#!/bin/sh
+case "$1" in
+  -c) printf '640\\n'; exit 0 ;;
+  -f) printf 'filesystem noise\\n644\\n'; exit 0 ;;
+esac
+exit 1
+`);
+    chmodSync(fakeStat, 0o755);
+
+    execFileSync('bash', [join(REPO, 'install.sh'), target], {
+      env: { ...process.env, PATH: `${fakeBin}:${process.env.PATH}` },
+      stdio: 'pipe',
+    });
+
+    assert.equal(lstatSync(join(target, 'PROJECT.md')).mode & 0o777, 0o640);
+  } finally {
+    rmSync(target, { recursive: true, force: true });
+    rmSync(fakeBin, { recursive: true, force: true });
+  }
+});
 
 for (const inst of installers) {
   test(`${inst.name}: the target root contains only the agreed entries`, { skip: inst.skip ? 'pwsh not installed' : false }, () => {

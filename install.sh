@@ -109,6 +109,7 @@ fi
 gi="$TARGET/.gitignore"
 gi_start='# codeforge:generated:start'
 gi_end='# codeforge:generated:end'
+GI_BLOCK_PRESENT=0
 if [ -f "$gi" ]; then
   gi_stats="$(awk -v s="$gi_start" -v e="$gi_end" '
     { line=$0; sub(/\r$/, "", line) }
@@ -121,6 +122,7 @@ if [ -f "$gi" ]; then
     echo "error: malformed codeforge block in $gi; fix/remove '$gi_start' and '$gi_end', then re-run" >&2
     exit 1
   fi
+  [ "$1" -eq 0 ] || GI_BLOCK_PRESENT=1
 fi
 
 # Existing imported-context markers are also managed as one replaceable range. Validate them
@@ -301,7 +303,11 @@ fi
       cat "$context_block"
     } > "$project_tmp"
   fi
-  project_mode="$(stat -f '%Lp' "$TARGET/PROJECT.md" 2>/dev/null || stat -c '%a' "$TARGET/PROJECT.md" 2>/dev/null || printf '600')"
+  # GNU stat accepts `-f` too, but there it means filesystem information and exits successfully
+  # with multi-line output. Try the GNU file-mode form first, then the BSD/macOS form, and reject
+  # anything that is not a single octal mode before passing it to chmod.
+  project_mode="$(stat -c '%a' "$TARGET/PROJECT.md" 2>/dev/null || stat -f '%Lp' "$TARGET/PROJECT.md" 2>/dev/null || printf '600')"
+  case "$project_mode" in ''|*[!0-7]*) project_mode=600 ;; esac
   chmod "$project_mode" "$project_tmp"
   mv -f "$project_tmp" "$TARGET/PROJECT.md"
   rm -f "$context_block"
@@ -590,13 +596,19 @@ fi
 touch "$gi"
 
 gi_tmp="$(mktemp "$TARGET/.codeforge-gitignore.XXXXXX")" || { echo "install: cannot create a temp file in $TARGET" >&2; exit 1; }
-awk -v s="$gi_start" -v e="$gi_end" '
-  { line=$0; sub(/\r$/, "", line) }
-  line == s { inblk=1; next }
-  inblk && line == e { inblk=0; next }
-  !inblk { raw[++n]=$0; normalized[n]=line }
-  END { while (n > 0 && normalized[n] == "") n--; for (i=1; i<=n; i++) print raw[i] }
-' "$gi" > "$gi_tmp"
+if [ "$GI_BLOCK_PRESENT" -eq 0 ]; then
+  # With no prior managed block there is nothing to parse: copy the user file byte-for-byte.
+  # This matters on Git Bash, where routing CRLF input through awk can normalize it to LF.
+  cp "$gi" "$gi_tmp"
+else
+  awk -v s="$gi_start" -v e="$gi_end" '
+    { line=$0; sub(/\r$/, "", line) }
+    line == s { inblk=1; next }
+    inblk && line == e { inblk=0; next }
+    !inblk { raw[++n]=$0; normalized[n]=line }
+    END { while (n > 0 && normalized[n] == "") n--; for (i=1; i<=n; i++) print raw[i] }
+  ' "$gi" > "$gi_tmp"
+fi
 
 {
   [ ! -s "$gi_tmp" ] || printf '\n'
