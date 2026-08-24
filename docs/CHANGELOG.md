@@ -4,7 +4,15 @@ Notable changes to the codeforge framework itself, newest first. This is the fra
 development log; it is **not** the seed shipped to installed projects (that lives at
 `src/docs/CHANGELOG.md`).
 
-## Unreleased — target 0.7.0
+## Unreleased — target 0.8.0
+
+- _No changes yet._
+
+## 0.7.0 — 2026-08-24
+
+Codeforge now installs from one canonical `.codeforge/` source, generates clean adapters for
+Claude Code and Codex, preserves project context through `PROJECT.md`, and provides deterministic,
+bounded cross-engine reviews without silently switching to an unconfigured engine.
 
 - **Installer transactions and setup reporting are safer.** Both platform installers now reject
   malformed managed `.gitignore` blocks before mutating the target. Switching already-versioned

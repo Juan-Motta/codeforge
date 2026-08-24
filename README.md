@@ -386,10 +386,8 @@ automatically.
 
 ## Status
 
-**v0.7.0 — unreleased development iteration.** The latest published package remains
-[`@jualopezmo/codeforge` v0.6.0](https://www.npmjs.com/package/@jualopezmo/codeforge). The
-changes described below are present in this repository and are not available from npm until the
-0.7.0 release is published.
+**v0.7.0 — current release.** Available as
+[`@jualopezmo/codeforge` v0.7.0](https://www.npmjs.com/package/@jualopezmo/codeforge).
 
 This iteration adds a **full-screen interactive setup wizard** (Ink/React) with English/Español,
 configurable **reviewers + council advisors**, a Claude Code + Codex **execution mode** (inline
