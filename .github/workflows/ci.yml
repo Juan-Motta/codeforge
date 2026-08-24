@@ -61,7 +61,7 @@ jobs:
           $t = Join-Path $env:RUNNER_TEMP 'ps'
           New-Item -ItemType Directory -Force -Path $t | Out-Null
           pwsh -NoProfile -File ./install.ps1 $t
-          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.codeforge/version','.codeforge/rules/ship-gates.md','.codeforge/scripts/check-gates.ps1','.claude/skills/new-feature/SKILL.md','.agents/skills/new-feature/SKILL.md') {
+          foreach ($f in 'CLAUDE.md','AGENTS.md','opencode.json','.codeforge/version','.codeforge/WORKFLOW.md','.codeforge/agents/codeforge-implementer.md','.codeforge/skills/new-feature/SKILL.md','.codeforge/rules/ship-gates.md','.codeforge/scripts/check-gates.ps1','.codeforge/scripts/run-reviewer.mjs','.codeforge/configs/codex/config.toml','.codeforge/docs/extending.md','.codeforge/templates/PROJECT.md','.codeforge/sync.sh','.codeforge/sync.ps1','.claude/skills/new-feature/SKILL.md','.claude/agents/codeforge-implementer.md','.agents/skills/new-feature/SKILL.md','.codex/agents/codeforge-implementer.toml') {
             if (-not (Test-Path (Join-Path $t $f))) { throw "missing runtime file: $f" }
           }
       - name: npx wrapper translates flags and runs the PowerShell installer
@@ -74,4 +74,4 @@ jobs:
           if ($v -ne (Get-Content ./VERSION -TotalCount 1).Trim()) { throw "npx --version mismatch: $v" }
       - name: Tool tests (exercises the .ps1 gate parity tests under native Windows path/shell semantics)
         shell: pwsh
-        run: node --test tools/test/
+        run: node --test

@@ -25,10 +25,12 @@ explicitly. A vague prompt produces vague advice.
 
 ## 2. Pick the advisors (must span engines)
 
-Choose **at least two distinct engines** as advisors; the more model diversity, the
-better. The driver may include itself as one voice, but the panel must not be a single
-engine talking to itself. Optionally assign each advisor a different lens so they don't
-all reason the same way, e.g.:
+Read `Council advisors` from the managed policy block in `.codeforge/rules/models.md` and use
+**only** those engines. This line is an authoritative allowlist. Never add OpenCode (or any
+other engine) merely to increase diversity. A valid council needs at least two distinct
+configured engines; if fewer are listed/available, report that the council cannot run and ask
+the user to update the policy. The driver may include itself as one voice. Optionally assign
+each advisor a different lens so they don't all reason the same way, e.g.:
 
 - **Simplicity** — the least-moving-parts option.
 - **Blast radius / risk** — what breaks, how reversible.
@@ -36,16 +38,27 @@ all reason the same way, e.g.:
 
 ## 3. Consult each advisor independently
 
+The framed question and supporting project material leave the current engine boundary. Obtain
+**explicit human authorization** naming every external advisor and the source scope **before creating
+any complete advisor prompt**, unless it was already granted in the current
+conversation. Repository configuration is not human consent to export source; the council
+allowlist only controls which engines are eligible. Under unattended `/goal`, HALT unless its
+capability preflight proves this authorization and execution will both be prompt-free.
+
 Send each advisor the **same framed question** (plus its lens), and do it
 **independently** — an advisor must not see another's answer, or you lose the diversity.
-Use each engine's **non-interactive** mode (Codex `codex exec`, Claude `claude -p`, OpenCode
-`opencode run`), spanning all three engines for max diversity. The exact **model IDs, effort,
-and read-only invocation** for each engine live in one place — `.codeforge/rules/models.md` —
-so use them from there; do not hard-code them here. Advisors must run **read-only** (they
-advise, they don't edit) per the read-only invocation in `models.md`.
+Use each configured engine's **non-interactive** mode. The exact model, invocation, network
+requirements, 10-minute (600-second) deadline, capture rules, and one-retry limit live in
+`.codeforge/rules/models.md`; create a separate prompt/stdout/stderr set per advisor and invoke
+its `run-reviewer.mjs` command rather than hard-coding engine commands. Advisors must run
+read-only.
 
 Capture from each: its position, key reasoning, and a one-line recommendation. If an
-advisor's output is missing or unparseable, re-run it — do not invent a position for it.
+advisor's output is missing or unparseable, retry that same configured advisor at most once.
+After a second failure, mark it unavailable; do not substitute an engine outside the allowlist
+or invent a position. A host approval denial before the runner launches is not a transient
+reviewer failure: do not retry it until authorization/permission changes. If fewer than two
+advisors remain, the council failed.
 
 ## 4. Synthesize (chairman)
 
@@ -69,6 +82,7 @@ auditable later.
 | Rationalization | Reality |
 | --- | --- |
 | "I'll ask one engine twice for the two views." | A panel of one engine is groupthink. Advisors must span ≥2 distinct engines or it isn't a council. |
+| "A configured advisor failed, so I'll add OpenCode." | Availability failures do not expand policy. Retry once, then fail the council if fewer than two configured advisors remain. |
 | "Let the advisors see each other's answers to build on them." | Independence is the whole point — shared answers collapse the diversity into one view. Consult each blind. |
 | "They all agreed, so I'll drop the minority report." | The minority report is mandatory. If all agreed, state the biggest residual risk — it's the guard against groupthink. |
 | "This is a routine call — run a council to be safe." | Council is for expensive, hard-to-reverse forks. For an obvious default, just decide; don't burn the ceremony. |

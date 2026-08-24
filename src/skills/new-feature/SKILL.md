@@ -38,7 +38,7 @@ in `.codeforge/workflow/state.md`.
 Red → green → refactor (`.codeforge/rules/tdd.md`). Write the failing test first, make it pass
 minimally, then refactor. Never write implementation before a failing test exists. Execute
 the implementation per the configured mode in `.codeforge/rules/execution.md` (inline, or
-subagent-driven on Claude Code).
+subagent-driven through the native Claude Code / Codex implementer adapter).
 
 ## 5. Code review (cross-engine)
 
@@ -66,7 +66,8 @@ Record the change in `docs/CHANGELOG.md` and save any reusable learning
 phase's guidance here is used under `owner=goal`, the following belong to `/goal`, not this skill:
 state init (§0), design-review and code-review **loop control** (§3/§5), `simplify`, verify (§6),
 ship (§7), review-log lines, and phase transitions. Implementers run with `commit_policy=defer`
-(stage-only; `/goal` commits once at ship). This skill contributes only the requested phase's work.
+(unstaged and uncommitted; `/goal` alone owns the index and commits once at ship). This skill
+contributes only the requested phase's work.
 
 ## Common rationalizations
 

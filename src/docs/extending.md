@@ -17,8 +17,8 @@ portability.
 
 ## Tier A — Skills only (advisory, fully portable)
 
-Anything that is a *procedure or criterion*. Add these freely — no config changes; after a
-`./sync.sh` all three engines pick them up automatically.
+Anything that is a *procedure or criterion*. Add these freely — no config changes; after
+running `.codeforge/sync.sh` all three engines pick them up automatically.
 
 Examples:
 
@@ -33,10 +33,15 @@ Examples:
 
 **Cost:** the agent does it *because instructed*. Nothing prevents non-compliance.
 
+Native implementation delegation follows the same source-first rule: edit the bounded-task
+contract in `.codeforge/agents/codeforge-implementer.md`, then sync to regenerate the Claude Code
+Markdown and Codex TOML definitions. Keep engine-specific model pins out of the neutral contract;
+add a deliberate engine override only when the project truly needs it.
+
 ### How to add a skill
 
-1. `mkdir skills/<name>` — the directory name must be lowercase, hyphen-separated.
-2. Create `skills/<name>/SKILL.md` (uppercase filename) with frontmatter:
+1. `mkdir .codeforge/skills/<name>` — the directory name must be lowercase, hyphen-separated.
+2. Create `.codeforge/skills/<name>/SKILL.md` (uppercase filename) with frontmatter:
    ```
    ---
    name: <name>          # must equal the directory name
@@ -44,20 +49,20 @@ Examples:
    ---
    ```
    then the steps, referencing `.codeforge/rules/*` and `.codeforge/workflow/state.md`.
-3. Run `./sync.sh` (or `sync.ps1` on Windows). It regenerates `.claude/skills` (Claude Code +
-   OpenCode) and `.agents/skills` (Codex + OpenCode) from `skills/` — a full mirror (deletions
-   propagate), so every engine discovers the skill. No further config.
+3. Run `.codeforge/sync.sh` (or `pwsh .codeforge/sync.ps1` on Windows).
+   It regenerates `.claude/skills` (Claude Code + OpenCode) and `.agents/skills` (Codex +
+   OpenCode) from `.codeforge/skills/` — a full mirror, so every engine discovers the skill.
 
-**Framework vs project-own skills:** `skills/` holds both. The installer's `--upgrade`
-refreshes only the **framework's own** skills (by name) and never deletes the rest — so a
-skill you add here survives upgrades. (Same for `.codeforge/rules/`.) Give your own skills
-names distinct from the framework's, or an upgrade will overwrite the collision.
+**Upgrade note:** framework skills are refreshed by name. Custom skills and rule files with
+distinct names under `.codeforge/skills/` and `.codeforge/rules/` are preserved automatically;
+a name collision intentionally selects the framework version.
 
 ---
 
 ## Tier B — Skills + agent-invoked scripts (deterministic, still advisory)
 
-No hooks. A skill tells the agent to run a helper script (e.g. `scripts/check-gates.sh`).
+No hooks. A skill tells the agent to run a helper script (e.g.
+`.codeforge/scripts/check-gates.sh`).
 You gain determinism and reuse; a single POSIX script serves all three engines. But it
 runs **only when the agent chooses to call it**.
 
@@ -69,7 +74,7 @@ Good fits:
 
 **Cost:** deterministic, but still skippable — the agent may not invoke it.
 
-Convention: keep such scripts in `scripts/`, POSIX `sh`, no engine-specific assumptions,
+Convention: keep such scripts in `.codeforge/scripts/`, POSIX `sh`, no engine-specific assumptions,
 and have the relevant skill name the exact command to run.
 
 ---

@@ -7,10 +7,19 @@
 approval_policy = "on-request"
 sandbox_mode = "workspace-write"
 
-# This file is the CANONICAL source for Codex config; ./sync.sh copies it to .codex/config.toml.
+# Native implementation delegation. The custom role itself is generated at
+# .codex/agents/codeforge-implementer.toml from the canonical contract under .codeforge/agents/.
+# The role inherits the active model unless a project deliberately pins one in its generated TOML.
+[agents]
+enabled = true
+max_concurrent_threads_per_session = 1
+
+# Installed canonical source: .codeforge/configs/codex/config.toml.
+# .codeforge/sync.sh copies it to .codex/config.toml.
 # Repo skills are generated under <repo>/.agents/skills (Codex discovers project skills there —
 # NOT under .codex/skills). Sync also writes <repo>/.claude/skills (Claude Code + OpenCode).
-# Discipline is loaded from AGENTS.md (a generated copy of CLAUDE.md) at the repo root.
+# AGENTS.md is a minimal bootstrap that directs Codex to PROJECT.md and
+# .codeforge/WORKFLOW.md at the repo root.
 
 # To harden the ship-gate into an actual command block (still no bash script), add a
 # Codex execpolicy `.rules` file that requires approval specifically for

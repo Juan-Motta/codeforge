@@ -14,6 +14,13 @@ const ENGINES = Object.keys(catalog); // ['codex','claude','opencode']
 const fmt = (o) => `${o.model}${o.effort ? ' · ' + o.effort : ''}`;
 const engineLabel = (en, models) => `${en.padEnd(9)}  ${models[en] ? fmt(models[en]) : ''}`;
 
+// Prefer two configured engines so accepting the default still leaves a non-driver reviewer.
+// Catalog order keeps Codex + Claude ahead of OpenCode when all three are configured; OpenCode
+// remains available but is never enabled as an implicit third reviewer.
+export function defaultReviewerSelection(configured) {
+  return configured.slice(0, 2);
+}
+
 export default function ReviewPolicy({ answers, setAnswers, onNext, lang }) {
   const { review: r, ui } = t(lang);
   const [phase, setPhase] = React.useState('models'); // models → reviewers → council
@@ -76,7 +83,7 @@ export default function ReviewPolicy({ answers, setAnswers, onNext, lang }) {
     return e(Card, { title: r.reviewersTitle, subtitle: r.reviewersSubtitle, footer: multiFooter(ui) },
       e(MultiSelect, {
         items: roleItems,
-        initial: [configured[0]],
+        initial: defaultReviewerSelection(configured),
         minSelect: 1,
         onConfirm: (sel) => { setReviewers(sel); setPhase('council'); },
       }));

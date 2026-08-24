@@ -1,11 +1,28 @@
 import { spawnSync } from 'node:child_process';
 import { posix, win32 } from 'node:path';
 
-const WIN_FLAG = { '--upgrade': '-Upgrade', '--with-hooks': '-WithHooks', '--git-init': '-GitInit', '--no-isolate': '-NoIsolate' };
+const WIN_FLAG = {
+  '--upgrade': '-Upgrade',
+  '--git-init': '-GitInit',
+  '--no-isolate': '-NoIsolate',
+  '--ignore-generated': '-IgnoreGenerated',
+  '--track-generated': '-TrackGenerated',
+};
 
 function defaultSpawn(cmd, args) {
   const r = spawnSync(cmd, args, { stdio: 'inherit' });
   return { status: r.status ?? 1, error: r.error };
+}
+
+export function finalizeInstallerRun(result, applyConfig) {
+  const status = result.status ?? 1;
+  if (status !== 0) return { status };
+  try {
+    applyConfig();
+    return { status: 0 };
+  } catch (applyError) {
+    return { status: 1, applyError };
+  }
 }
 
 export function runInstaller(pkgRoot, argv, opts = {}) {

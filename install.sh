@@ -3,34 +3,30 @@
 # codeforge installer — copy the workflow discipline into a target project.
 #
 #   ./install.sh [target-dir] [--upgrade] [--git-init] [--no-isolate]
+#                [--ignore-generated | --track-generated]
 #
 # With no target-dir, installs into the current working directory. So the common flow is:
 #   cd my-project && /path/to/codeforge/install.sh
 #
-# THIN INSTALL: the target receives only what the agent needs at RUNTIME. All framework
-# machinery (the neutral source in ./src/, the generators sync.sh/ps1, the generation
-# inputs in configs/, and the seed templates) stays in the codeforge repo — never copied
-# into the target. To customize or upgrade, edit the codeforge source and re-run this
-# installer against the target (`--upgrade`, or a bare re-run from inside the project).
+# SELF-CONTAINED INSTALL: `.codeforge/` is the canonical installed source. It contains
+# everything required to inspect, customize, and regenerate the harness without a checkout
+# of this repository: instructions, agent contracts, skills, rules, scripts, configs, docs, templates, and
+# sync.sh/sync.ps1. The engine-specific discovery paths are generated from that directory by
+# plain copy (no symlinks), so generation behaves the same on macOS, Linux, and Windows.
 #
-# The shippable payload is the NEUTRAL source in ./src/ (CLAUDE.md, skills/, .codeforge/,
-# configs/, docs/, *.template.md). This installer copies the runtime subset into the
-# target, then runs `sync.sh --out <target>` to GENERATE each engine's config + skills
-# (.claude/ + .agents/skills + .codex/config.toml + AGENTS.md + opencode.json) straight
-# into the target. No symlinks (Windows-safe). The generated engine artifacts are COMMITTED
-# with the target project so a fresh clone works immediately — no codeforge dependency at
-# runtime; re-run the installer after editing the source to regenerate.
+# LANDS IN THE TARGET:
+#   .codeforge/                    canonical framework source + local workflow state
+#   CLAUDE.md, AGENTS.md           generated engine instructions
+#   .claude/, .agents/, .codex/    generated engine discovery/config
+#   opencode.json                  generated OpenCode config
+#   docs/                          project knowledge scaffold
+#   PROJECT.md, CONTINUITY.md      project-owned, seeded only when missing
 #
-# LANDS IN THE TARGET (runtime only):
-#   CLAUDE.md, AGENTS.md, opencode.json, .claude/, .agents/, .codex/ (generated),
-#   .codeforge/rules/*.md + .codeforge/state.template.md + .codeforge/scripts/* (managed), docs/ scaffolding + CHANGELOG,
-#   PROJECT.md + CONTINUITY.md (project-owned, seeded if missing).
-# STAYS IN codeforge (never copied): src/skills (neutral), configs/, sync.sh, sync.ps1,
-#   *.template.md, docs/extending.md.
-#
-# MANAGED (framework baseline — OVERWRITTEN on install/upgrade): CLAUDE.md, the framework's
-#   OWN entries in .codeforge/rules/, .codeforge/state.template.md. Your own rules dropped into
-#   .codeforge/rules/ survive upgrades (selective, per-entry by name).
+# MANAGED (framework baseline — OVERWRITTEN on install/upgrade): `.codeforge/WORKFLOW.md`,
+#   agents/, skills/, docs/, templates/, sync scripts, state template, scripts, and the
+#   framework's own rule entries. Your own rules in `.codeforge/rules/` survive upgrades.
+# PROJECT-OWNED CONFIG: `.codeforge/configs/` is seeded only when entries are missing, so local
+#   engine configuration remains the canonical input to sync across reinstall/upgrade.
 # PROJECT-OWNED (created only if missing — NEVER clobbered): PROJECT.md, CONTINUITY.md,
 #   docs/CHANGELOG.md. Per-project Claude overrides go in .claude/settings.local.json.
 #
@@ -44,14 +40,20 @@ FORGE_VERSION="unknown"
 MODE="install"
 GIT_INIT=0
 ISOLATE=1   # auto-isolate Claude Code from ancestor CLAUDE.md by default (--no-isolate to keep inheritance)
+GENERATED_POLICY="" # explicit flag, prior manifest value, or "tracked" for a fresh install
 TARGET=""
-usage="usage: $0 [target-dir] [--upgrade] [--git-init] [--no-isolate]"
+usage="usage: $0 [target-dir] [--upgrade] [--git-init] [--no-isolate] [--ignore-generated | --track-generated]"
 while [ $# -gt 0 ]; do
   case "$1" in
     --upgrade)     MODE="upgrade" ;;
-    --with-hooks)  echo "  ! --with-hooks is retired (the Claude gate hook is superseded by the CI Verified tier); ignoring." >&2 ;;
     --git-init)    GIT_INIT=1 ;;
     --no-isolate)  ISOLATE=0 ;;
+    --ignore-generated)
+      [ "$GENERATED_POLICY" != "tracked" ] || { echo "$usage  (conflicting generated-adapter flags)" >&2; exit 2; }
+      GENERATED_POLICY="ignored" ;;
+    --track-generated)
+      [ "$GENERATED_POLICY" != "ignored" ] || { echo "$usage  (conflicting generated-adapter flags)" >&2; exit 2; }
+      GENERATED_POLICY="tracked" ;;
     -*)            echo "$usage  (unknown arg: $1)" >&2; exit 2 ;;
     *)             if [ -z "$TARGET" ]; then TARGET="$1"; else echo "$usage  (unexpected arg: $1)" >&2; exit 2; fi ;;
   esac
@@ -61,11 +63,102 @@ TARGET="${TARGET:-$PWD}"
 
 [ -d "$TARGET" ] || { echo "error: target dir not found: $TARGET" >&2; exit 2; }
 TARGET="$(cd "$TARGET" && pwd)"
+
+# Fail before reading or mutating managed paths if any directory component codeforge owns is a
+# symlink. Leaf generated files are replaced atomically later, but a linked ancestor would make
+# mkdir/cp/rm operate outside the selected project.
+forge_reject_managed_link() {
+  _forge_link="$1"
+  if [ -L "$_forge_link" ]; then
+    echo "error: refusing managed symlink/reparse path: $_forge_link" >&2
+    exit 2
+  fi
+}
+
+for _forge_rel in \
+  .codeforge .claude .agents .codex docs \
+  .claude/skills .claude/agents .claude/settings.local.json \
+  .agents/skills .codex/agents \
+  docs/prds docs/plans docs/research docs/solutions docs/adr docs/e2e \
+  docs/e2e/reports docs/e2e/use-cases docs/ci-templates \
+  docs/prds/.gitkeep docs/plans/.gitkeep docs/research/.gitkeep \
+  docs/solutions/.gitkeep docs/adr/.gitkeep docs/e2e/reports/.gitkeep \
+  docs/e2e/use-cases/.gitkeep docs/CHANGELOG.md \
+  PROJECT.md CONTINUITY.md .gitignore; do
+  forge_reject_managed_link "$TARGET/$_forge_rel"
+done
+if [ -d "$TARGET/.codeforge" ]; then
+  _forge_nested_link="$(find "$TARGET/.codeforge" -type l -print -quit 2>/dev/null || true)"
+  [ -z "$_forge_nested_link" ] || {
+    echo "error: refusing symlink inside canonical .codeforge source: $_forge_nested_link" >&2
+    exit 2
+  }
+fi
+if [ -d "$TARGET/docs/ci-templates" ]; then
+  _forge_docs_link="$(find "$TARGET/docs/ci-templates" -type l -print -quit 2>/dev/null || true)"
+  [ -z "$_forge_docs_link" ] || {
+    echo "error: refusing symlink inside managed docs/ci-templates: $_forge_docs_link" >&2
+    exit 2
+  }
+fi
+
+# Validate the existing managed .gitignore range before creating `.codeforge/`, rewriting the
+# root entrypoints, or touching any project file. A missing file is valid and will be created
+# later; a malformed existing block makes the intended merge ambiguous, so installation must be
+# a no-op rather than a partial install.
+gi="$TARGET/.gitignore"
+gi_start='# codeforge:generated:start'
+gi_end='# codeforge:generated:end'
+if [ -f "$gi" ]; then
+  gi_stats="$(awk -v s="$gi_start" -v e="$gi_end" '
+    { line=$0; sub(/\r$/, "", line) }
+    line == s { sc++; if (!sp) sp=NR }
+    line == e { ec++; if (!ep) ep=NR }
+    END { printf "%d %d %d %d", sc+0, ec+0, sp+0, ep+0 }
+  ' "$gi")"
+  set -- $gi_stats
+  if { [ "$1" -ne 0 ] || [ "$2" -ne 0 ]; } && { [ "$1" -ne 1 ] || [ "$2" -ne 1 ] || [ "$3" -ge "$4" ]; }; then
+    echo "error: malformed codeforge block in $gi; fix/remove '$gi_start' and '$gi_end', then re-run" >&2
+    exit 1
+  fi
+fi
+
+# Existing imported-context markers are also managed as one replaceable range. Validate them
+# before installation so a retry can update that range atomically instead of appending a second
+# copy or guessing how to repair malformed project-owned content.
+context_start='<!-- codeforge:imported-context:start -->'
+context_end='<!-- codeforge:imported-context:end -->'
+PROJECT_IMPORT_PRESENT=0
+if [ -f "$TARGET/PROJECT.md" ]; then
+  context_stats="$(awk -v s="$context_start" -v e="$context_end" '
+    { line=$0; sub(/\r$/, "", line) }
+    line == s { sc++; if (!sp) sp=NR }
+    line == e { ec++; if (!ep) ep=NR }
+    END { printf "%d %d %d %d", sc+0, ec+0, sp+0, ep+0 }
+  ' "$TARGET/PROJECT.md")"
+  set -- $context_stats
+  if { [ "$1" -ne 0 ] || [ "$2" -ne 0 ]; } && { [ "$1" -ne 1 ] || [ "$2" -ne 1 ] || [ "$3" -ge "$4" ]; }; then
+    echo "error: malformed imported-context block in $TARGET/PROJECT.md; fix/remove '$context_start' and '$context_end', then re-run" >&2
+    exit 1
+  fi
+  [ "$1" -eq 0 ] || PROJECT_IMPORT_PRESENT=1
+fi
+
 # Did a prior forge install own .claude/settings.local.json? (read before the manifest is
 # rewritten below, so the settings writer knows whether it may safely regenerate the file.)
 PRIOR_LOCAL_MANAGED=0
-grep -q '^localsettings:managed$' "$TARGET/.codeforge/manifest" 2>/dev/null && PRIOR_LOCAL_MANAGED=1
-{ [ -f "$PAYLOAD/CLAUDE.md" ] && [ -d "$PAYLOAD/skills" ]; } || { echo "error: payload not found — run this from the codeforge repo" >&2; exit 2; }
+awk '{ sub(/\r$/, "") } $0 == "localsettings:managed" { found=1 } END { exit !found }' \
+  "$TARGET/.codeforge/manifest" 2>/dev/null && PRIOR_LOCAL_MANAGED=1
+# Preserve the project's prior choice on a bare reinstall/upgrade. Explicit flags always win;
+# a fresh install defaults to tracked adapters so a clone works without a post-clone step.
+if [ -z "$GENERATED_POLICY" ]; then
+  GENERATED_POLICY="$(awk -F: '{ sub(/\r$/, "", $2) } $1 == "generated" && ($2 == "tracked" || $2 == "ignored") { print $2; exit }' "$TARGET/.codeforge/manifest" 2>/dev/null || true)"
+  GENERATED_POLICY="${GENERATED_POLICY:-tracked}"
+fi
+{ [ -f "$PAYLOAD/CLAUDE.md" ] && [ -d "$PAYLOAD/skills" ] \
+  && [ -f "$PAYLOAD/agents/codeforge-implementer.md" ] \
+  && [ -f "$PAYLOAD/codeforge/scripts/run-reviewer.mjs" ]; } \
+  || { echo "error: payload not found — run this from the codeforge repo" >&2; exit 2; }
 [ "$TARGET" != "$SRC" ]     || { echo "error: refusing to install into codeforge itself" >&2; exit 2; }
 [ "$TARGET" != "$PAYLOAD" ] || { echo "error: refusing to install into the codeforge payload dir (src/)" >&2; exit 2; }
 
@@ -86,65 +179,135 @@ if [ -n "$PRIOR_VERSION" ] && [ "$PRIOR_VERSION" != "$FORGE_VERSION" ] \
   fi
 fi
 
-# --- self-healing: drop machinery this version no longer installs into the target ---
-# (thin model — machinery lives in the codeforge repo; the target gets runtime only.) This
-# migrates a target from an older, bloated install. Gated on a prior forge install
-# (.codeforge/manifest present) so a FIRST install never touches an unrelated project's own
-# configs/ or skills/ dirs.
-if [ -f "$TARGET/.codeforge/manifest" ]; then
-  if [ -e "$TARGET/.codeforge/scripts/claude-gate-hook.sh" ] || [ -e "$TARGET/.codeforge/scripts/claude-gate-hook.ps1" ]; then
-    echo "  ~ the Claude gate hook (--with-hooks) is retired — enforcement is now the CI Verified tier (docs/ci-templates/)."
-  fi
-  # Retired: the opt-in Claude gate hook (superseded by the CI Verified tier).
-  for f in .codeforge/scripts/claude-gate-hook.sh .codeforge/scripts/claude-gate-hook.ps1; do
-    [ -e "$TARGET/$f" ] && { rm -f "$TARGET/$f"; echo "  - removed retired gate hook: $f"; }
-  done
-  # Detect a genuinely OLD (pre-thin) forge install: it left this machinery at the target root.
-  # A modern thin install — or an unrelated app that happens to keep its own top-level configs/
-  # or skills/ — does NOT. Gate the configs/skills migration on this signal so a routine
-  # re-install never relocates a project's own configs/ or skills/ just because a manifest exists.
-  old_install=0
-  for f in sync.sh sync.ps1 state.template.md PROJECT.template.md CONTINUITY.template.md docs/extending.md; do
-    [ -e "$TARGET/$f" ] && old_install=1
-  done
-  # Framework-owned machinery, no user content — removed outright.
-  for f in sync.sh sync.ps1 state.template.md PROJECT.template.md CONTINUITY.template.md docs/extending.md; do
-    [ -e "$TARGET/$f" ] && { rm -f "$TARGET/$f"; echo "  - removed obsolete framework file: $f"; }
-  done
-  # Only migrate configs/ and the neutral skills/ when this was actually an old bloated install
-  # (back them up rather than delete, so nothing is lost).
-  if [ "$old_install" = 1 ] && [ -d "$TARGET/configs" ]; then
-    rm -rf "$TARGET/configs.pre-forge.bak"; mv "$TARGET/configs" "$TARGET/configs.pre-forge.bak"
-    echo "  ! configs/ is obsolete (engine configs are generated now) -> configs.pre-forge.bak; per-project Claude tweaks go in .claude/settings.local.json"
-  fi
-  if [ "$old_install" = 1 ] && [ -d "$TARGET/skills" ]; then
-    rm -rf "$TARGET/skills.pre-forge.bak"; mv "$TARGET/skills" "$TARGET/skills.pre-forge.bak"
-    echo "  ! neutral skills/ is obsolete (skills are generated now) -> skills.pre-forge.bak; add custom skills to the codeforge repo"
-  fi
+# --- CANONICAL INSTALLED SOURCE: everything required to regenerate the harness ---
+# The package source stays organized for framework development, but an installed
+# project gets one self-contained `.codeforge/` tree. Engine discovery files
+# and project scaffolding below are generated/seeded from this local source.
+AW="$TARGET/.codeforge"
+mkdir -p "$AW"
+manifest="$AW/manifest"
+
+cp "$PAYLOAD/CLAUDE.md" "$AW/WORKFLOW.md"
+
+# Framework agent contracts are refreshed by name; project-specific contracts with other names
+# survive upgrades and are rendered by sync only when codeforge has a matching adapter.
+mkdir -p "$AW/agents"
+for f in "$PAYLOAD"/agents/*.md; do
+  [ -e "$f" ] || continue
+  cp "$f" "$AW/agents/$(basename "$f")"
+done
+
+mkdir -p "$AW/configs" "$AW/docs" "$AW/templates"
+
+# Skills are managed per directory so project-specific additions survive an upgrade. A
+# framework skill with the same name is refreshed; a framework skill removed upstream is
+# pruned using the previous manifest.
+mkdir -p "$AW/skills"
+new_skills="$(find "$PAYLOAD/skills" -mindepth 1 -maxdepth 1 -type d -exec basename {} \; | sort)"
+if [ -f "$manifest" ]; then
+  while IFS= read -r line; do
+    line="${line%$'\r'}"
+    case "$line" in
+      skill:*)
+        n="${line#skill:}"
+        case "$n" in
+          *[!a-z0-9-]*|*--*|-*|*-|"") echo "  ! ignoring unsafe manifest skill entry: $n" >&2 ;;
+          *) printf '%s\n' "$new_skills" | grep -qxF "$n" || { rm -rf "$AW/skills/$n"; echo "  - pruned framework skill removed upstream: $n"; } ;;
+        esac ;;
+    esac
+  done < "$manifest"
+fi
+for d in "$PAYLOAD"/skills/*; do
+  [ -d "$d" ] || continue
+  n="$(basename "$d")"
+  rm -rf "$AW/skills/$n"
+  cp -R "$d" "$AW/skills/$n"
+done
+
+# Configs are project-owned canonical inputs once seeded. Preserve both edits to shipped files and
+# project-added files; deleting an entry is the explicit way to ask a later install to reseed it.
+find "$PAYLOAD/configs" -type f -print | while IFS= read -r source_config; do
+  config_relative="${source_config#"$PAYLOAD/configs/"}"
+  config_target="$AW/configs/$config_relative"
+  mkdir -p "$(dirname "$config_target")"
+  [ -e "$config_target" ] || cp "$source_config" "$config_target"
+done
+# Framework docs refresh by name while differently named project additions survive.
+cp -R "$PAYLOAD/docs/." "$AW/docs/"
+cp "$PAYLOAD/PROJECT.template.md" "$AW/templates/PROJECT.md"
+cp "$PAYLOAD/CONTINUITY.template.md" "$AW/templates/CONTINUITY.md"
+cp "$PAYLOAD/sync.sh" "$AW/sync.sh"
+cp "$PAYLOAD/sync.ps1" "$AW/sync.ps1"
+chmod +x "$AW/sync.sh"
+
+# --- PROJECT CONTEXT ADOPTION: preserve pre-existing agent entrypoints verbatim ---
+# PROJECT.md is project-owned and becomes the canonical home for project description,
+# architecture, commands, and conventions. Generated entrypoints are identified by a marker,
+# so routine re-installs never import their own bootstrap text.
+[ -f "$TARGET/PROJECT.md" ] || { cp "$AW/templates/PROJECT.md" "$TARGET/PROJECT.md"; echo "  + created PROJECT.md (fill in persona/info/variables/special rules)"; }
+
+old_claude=""
+old_agents=""
+if [ -f "$TARGET/CLAUDE.md" ] && ! grep -q 'codeforge:entrypoint' "$TARGET/CLAUDE.md" 2>/dev/null; then
+  old_claude="$TARGET/CLAUDE.md"
+  mkdir -p "$AW/backups"
+  [ -e "$AW/backups/CLAUDE.md.pre-codeforge.bak" ] || cp "$old_claude" "$AW/backups/CLAUDE.md.pre-codeforge.bak"
+fi
+if [ -f "$TARGET/AGENTS.md" ] && ! grep -q 'codeforge:entrypoint' "$TARGET/AGENTS.md" 2>/dev/null; then
+  old_agents="$TARGET/AGENTS.md"
+  mkdir -p "$AW/backups"
+  [ -e "$AW/backups/AGENTS.md.pre-codeforge.bak" ] || cp "$old_agents" "$AW/backups/AGENTS.md.pre-codeforge.bak"
 fi
 
-# --- remove the pre-.codeforge/ scattered layout, if this target still has it ---
-# Framework machinery used to sit in the target root as `shared/`, `.workflow/`, `.forge-manifest`
-# and `.forge-version`; it now lives under `.codeforge/`. This is NOT a migration — nothing is
-# carried over, by design (see docs/plans/2026-07-25-codeforge-dir-consolidation-plan.md §5). It
-# exists so a re-installed target does not end up with BOTH layouts, which would leave two
-# competing copies of the rules and scripts and no way to tell which one the agent is reading.
-# Gated on the OLD root markers, so a project that happens to own a `shared/` dir is never touched.
-if [ -f "$TARGET/.forge-manifest" ] || [ -f "$TARGET/.forge-version" ]; then
-  echo "  ~ this target uses the pre-.codeforge/ layout — removing the old machinery (no migration; see the plan doc)."
-  rm -rf "$TARGET/shared"
-  rm -f  "$TARGET/.forge-manifest" "$TARGET/.forge-version"
-  # `.workflow/` is volatile per-developer state and gitignored; nothing durable is lost.
-  [ -d "$TARGET/.workflow" ] && { rm -rf "$TARGET/.workflow"; echo "    - removed .workflow/ (volatile state; a workflow re-creates it at .codeforge/workflow/)"; }
-  echo "    - removed shared/, .forge-manifest, .forge-version"
-fi
+  if [ -n "$old_claude" ] || [ -n "$old_agents" ]; then
+  context_block="$(mktemp "$TARGET/.codeforge-context.XXXXXX")" || { echo "install: cannot create a context temp file in $TARGET" >&2; exit 1; }
+  project_tmp="$(mktemp "$TARGET/.codeforge-project.XXXXXX")" || { rm -f "$context_block"; echo "install: cannot create a project temp file in $TARGET" >&2; exit 1; }
+  {
+    printf '%s\n\n' "$context_start"
+    if [ -n "$old_claude" ] && [ -n "$old_agents" ] && cmp -s "$old_claude" "$old_agents"; then
+      printf '### From existing CLAUDE.md and AGENTS.md\n\n'
+      cat "$old_claude"
+      printf '\n'
+    else
+      if [ -n "$old_claude" ]; then
+        printf '### From existing CLAUDE.md\n\n'
+        cat "$old_claude"
+        printf '\n'
+      fi
+      if [ -n "$old_agents" ]; then
+        printf '### From existing AGENTS.md\n\n'
+        cat "$old_agents"
+        printf '\n'
+      fi
+    fi
+    printf '\n%s\n' "$context_end"
+  } > "$context_block"
 
-# --- MANAGED: CLAUDE.md (back up a pre-existing, non-forge one on first install) ---
-if [ -f "$TARGET/CLAUDE.md" ] && ! grep -q "Workflow discipline for Claude Code" "$TARGET/CLAUDE.md" 2>/dev/null; then
-  cp "$TARGET/CLAUDE.md" "$TARGET/CLAUDE.md.pre-forge.bak"
-  echo "  ! backed up existing CLAUDE.md -> CLAUDE.md.pre-forge.bak (move project-specifics into PROJECT.md)"
+  if [ "$PROJECT_IMPORT_PRESENT" = 1 ]; then
+    awk -v s="$context_start" -v e="$context_end" -v block="$context_block" '
+      function emit_block( line) {
+        while ((getline line < block) > 0) print line
+        close(block)
+      }
+      { normalized=$0; sub(/\r$/, "", normalized) }
+      normalized == s { emit_block(); inside=1; next }
+      inside && normalized == e { inside=0; next }
+      !inside { print }
+    ' "$TARGET/PROJECT.md" > "$project_tmp"
+  else
+    {
+      cat "$TARGET/PROJECT.md"
+      printf '\n## Imported agent context\n\n'
+      cat "$context_block"
+    } > "$project_tmp"
+  fi
+  project_mode="$(stat -f '%Lp' "$TARGET/PROJECT.md" 2>/dev/null || stat -c '%a' "$TARGET/PROJECT.md" 2>/dev/null || printf '600')"
+  chmod "$project_mode" "$project_tmp"
+  mv -f "$project_tmp" "$TARGET/PROJECT.md"
+  rm -f "$context_block"
+  PROJECT_IMPORT_PRESENT=1
+  echo "  + preserved existing agent context in PROJECT.md (originals backed up under .codeforge/backups/)"
 fi
-cp "$PAYLOAD/CLAUDE.md" "$TARGET/CLAUDE.md"
 
 # --- MANAGED: framework .codeforge/rules/ (per-entry overwrite by name) ---
 # Refresh only the framework's own rule entries; anything else in .codeforge/rules/ (your
@@ -155,9 +318,9 @@ new_rules="$(cd "$PAYLOAD/codeforge/rules" && ls *.md 2>/dev/null)"
 # Prune framework rules removed upstream: anything in the last-install manifest that is no
 # longer in the current payload is a framework rule deleted upstream — remove it. Project-owned
 # rules are never in the manifest, so they are untouched. (No manifest yet = skip prune.)
-manifest="$TARGET/.codeforge/manifest"
 if [ -f "$manifest" ]; then
   while IFS= read -r line; do
+    line="${line%$'\r'}"
     case "$line" in
       rule:*)
         n="${line#rule:}"
@@ -177,9 +340,12 @@ for f in "$PAYLOAD"/codeforge/rules/*.md; do
   cp "$f" "$TARGET/.codeforge/rules/$(basename "$f")"
 done
 
-# Record the framework-owned manifest for the next upgrade's prune (rules only; skills are
-# fully generated by sync, so there is nothing skill-level to selectively prune).
-{ printf '%s\n' "$new_rules" | sed 's/^/rule:/'; } > "$manifest"
+# Record framework-owned entries for the next selective upgrade/prune.
+{
+  printf '%s\n' "$new_rules" | sed 's/^/rule:/'
+  printf '%s\n' "$new_skills" | sed 's/^/skill:/'
+  printf 'generated:%s\n' "$GENERATED_POLICY"
+} > "$manifest"
 
 # Stamp the version that produced this install, for drift detection on the next run.
 printf '%s\n' "$FORGE_VERSION" > "$TARGET/.codeforge/version"
@@ -208,24 +374,24 @@ done
 # --- MANAGED: CI templates (Verified-tier gate + activation guide) ---
 # Copied into the target (overwritten on upgrade). A pre-existing, non-ours file is backed up
 # once so first adoption never clobbers a user's own docs/ci-templates content.
-if [ -d "$PAYLOAD/docs/ci-templates" ]; then
+if [ -d "$AW/docs/ci-templates" ]; then
   mkdir -p "$TARGET/docs/ci-templates"
-  for f in "$PAYLOAD"/docs/ci-templates/*; do
+  for f in "$AW"/docs/ci-templates/*; do
     [ -e "$f" ] || continue
     base="$(basename "$f")"
     dst="$TARGET/docs/ci-templates/$base"
-    if [ -f "$dst" ] && ! grep -q 'codeforge' "$dst" 2>/dev/null && [ ! -e "$dst.pre-forge.bak" ]; then
-      cp "$dst" "$dst.pre-forge.bak"
-      echo "  ! backed up existing docs/ci-templates/$base -> $base.pre-forge.bak"
+    if [ -f "$dst" ] && ! grep -q 'codeforge' "$dst" 2>/dev/null && [ ! -e "$dst.pre-codeforge.bak" ]; then
+      cp "$dst" "$dst.pre-codeforge.bak"
+      echo "  ! backed up existing docs/ci-templates/$base -> $base.pre-codeforge.bak"
     fi
     cp "$f" "$dst"
   done
 fi
 
 # --- PROJECT-OWNED: PROJECT.md / CONTINUITY.md / docs/CHANGELOG.md (create only if missing) ---
-[ -f "$TARGET/PROJECT.md" ]    || { cp "$PAYLOAD/PROJECT.template.md" "$TARGET/PROJECT.md"; echo "  + created PROJECT.md (fill in persona/info/variables/special rules)"; }
-[ -f "$TARGET/CONTINUITY.md" ] || cp "$PAYLOAD/CONTINUITY.template.md" "$TARGET/CONTINUITY.md"
-[ -f "$TARGET/docs/CHANGELOG.md" ] || cp "$PAYLOAD/docs/CHANGELOG.md" "$TARGET/docs/CHANGELOG.md"
+[ -f "$TARGET/PROJECT.md" ]    || cp "$AW/templates/PROJECT.md" "$TARGET/PROJECT.md"
+[ -f "$TARGET/CONTINUITY.md" ] || cp "$AW/templates/CONTINUITY.md" "$TARGET/CONTINUITY.md"
+[ -f "$TARGET/docs/CHANGELOG.md" ] || cp "$AW/docs/CHANGELOG.md" "$TARGET/docs/CHANGELOG.md"
 
 # --- re-render the wizard-owned values FROM PROJECT.md (project-owned) into the MANAGED files ---
 # The wizard's review policy and gate profile used to be written straight into
@@ -243,7 +409,7 @@ fi
 # target. Any failure is fatal, so no caller can print "applied" after a write that did not happen.
 forge_atomic_write() {
   _aw_dst="$1"; _aw_dir=$(dirname "$_aw_dst")
-  _aw_tmp=$(mktemp "$_aw_dir/.forge-render.XXXXXX") || { echo "install: cannot create a temp file in $_aw_dir" >&2; exit 1; }
+  _aw_tmp=$(mktemp "$_aw_dir/.codeforge-render.XXXXXX") || { echo "install: cannot create a temp file in $_aw_dir" >&2; exit 1; }
   if ! cat > "$_aw_tmp"; then rm -f "$_aw_tmp"; echo "install: failed writing $_aw_dst" >&2; exit 1; fi
   # mktemp creates 0600; these are framework-owned markdown docs, world-readable like the payload.
   chmod 644 "$_aw_tmp" || { rm -f "$_aw_tmp"; echo "install: failed setting mode on $_aw_dst" >&2; exit 1; }
@@ -326,24 +492,29 @@ if [ -f "$TARGET/PROJECT.md" ]; then
 fi
 
 # --- back up any pre-existing, NON-forge per-engine skills dir before sync overwrites it ---
-# (forge-generated dirs carry a .forge-generated marker; a dir without it is the user's own,
+# (generated dirs carry a .codeforge-generated marker; a dir without it is the user's own,
 #  so we never wipe a user's skills — even one coincidentally named new-feature.)
 for eng in .claude .agents; do
   sd="$TARGET/$eng/skills"
-  if [ -e "$sd" ] && [ ! -e "$sd/.forge-generated" ]; then
-    mv "$sd" "$sd.pre-forge.bak"
-    echo "  ! backed up existing $eng/skills -> $eng/skills.pre-forge.bak (add custom skills to the codeforge repo)"
+  if [ -e "$sd" ] && [ ! -e "$sd/.codeforge-generated" ]; then
+    mv "$sd" "$sd.pre-codeforge.bak"
+    echo "  ! backed up existing $eng/skills -> $eng/skills.pre-codeforge.bak (add custom skills under .codeforge/skills)"
   fi
 done
-# back up a real, non-forge AGENTS.md before sync overwrites it
-if [ -f "$TARGET/AGENTS.md" ] && ! grep -q "Workflow discipline for Claude Code" "$TARGET/AGENTS.md" 2>/dev/null; then
-  cp "$TARGET/AGENTS.md" "$TARGET/AGENTS.md.pre-forge.bak"
-  echo "  ! backed up existing AGENTS.md -> AGENTS.md.pre-forge.bak"
-fi
 
-# --- GENERATE engine dirs + AGENTS.md + opencode.json via sync (reads the codeforge source,
-#     writes straight into the target — no source or sync script copied there) ---
-bash "$PAYLOAD/sync.sh" --out "$TARGET" >/dev/null
+# The generated implementer uses a codeforge-owned name. Preserve a pre-existing definition once
+# before sync claims that path; unrelated custom agents in either directory are never touched.
+for agent_path in .claude/agents/codeforge-implementer.md .codex/agents/codeforge-implementer.toml; do
+  existing="$TARGET/$agent_path"
+  if [ -f "$existing" ] && ! grep -q 'codeforge:generated-agent' "$existing" 2>/dev/null; then
+    backup="$existing.pre-codeforge.bak"
+    [ -e "$backup" ] || cp "$existing" "$backup"
+    echo "  ! backed up existing $agent_path -> $agent_path.pre-codeforge.bak"
+  fi
+done
+# --- GENERATE engine dirs + AGENTS.md + opencode.json from the installed source ---
+# Users can re-run this exact command after inspecting/customizing `.codeforge/`.
+bash "$AW/sync.sh" --out "$TARGET" >/dev/null
 
 # --- Claude Code .claude/settings.local.json: auto-isolation ---
 # Lands in this one gitignored, per-developer, machine-specific file. Auto-isolation (default;
@@ -352,20 +523,45 @@ bash "$PAYLOAD/sync.sh" --out "$TARGET" >/dev/null
 # root, Claude Code walks to the filesystem root. codeforge only (re)writes this file when it is
 # absent or a prior forge install owned it (tracked as `localsettings:managed` in .codeforge/manifest);
 # a file it doesn't own is left alone.
-excludes=""
+# JSON-escape one path without jq/Python/Node. Escape each path while traversing: a newline is a
+# legal filename byte, so raw paths must never be accumulated in a newline-delimited variable.
+forge_json_escape() {
+  LC_ALL=C awk 'BEGIN {
+      ORS=""
+      for (code=1; code<32; code++) controls=controls sprintf("%c", code)
+    }
+    {
+      if (NR > 1) printf "\\n"
+      for (i=1; i<=length($0); i++) {
+        ch=substr($0, i, 1)
+        if (ch == "\\") printf "\\\\"
+        else if (ch == "\"") printf "\\\""
+        else if ((code=index(controls, ch)) > 0) printf "\\u%04x", code
+        else printf "%s", ch
+      }
+    }'
+}
+
+excl_json=""
+n_excl=0
+forge_add_exclude() {
+  escaped_p="$(printf '%s' "$1" | forge_json_escape)"
+  if [ -z "$excl_json" ]; then excl_json="$(printf '\n    "%s"' "$escaped_p")"
+  else excl_json="$excl_json$(printf ',\n    "%s"' "$escaped_p")"; fi
+  n_excl=$((n_excl + 1))
+}
+
 if [ "$ISOLATE" = "1" ]; then
   d="$(dirname "$TARGET")"
   while [ -n "$d" ] && [ "$d" != "/" ]; do
-    [ -f "$d/CLAUDE.md" ]       && excludes="$excludes$d/CLAUDE.md
-"
-    [ -f "$d/CLAUDE.local.md" ] && excludes="$excludes$d/CLAUDE.local.md
-"
-    { [ -d "$d/.claude/rules" ] && [ "$d" != "$HOME" ]; } && excludes="$excludes$d/.claude/rules/**
-"
+    [ ! -f "$d/CLAUDE.md" ]       || forge_add_exclude "$d/CLAUDE.md"
+    [ ! -f "$d/CLAUDE.local.md" ] || forge_add_exclude "$d/CLAUDE.local.md"
+    if [ -d "$d/.claude/rules" ] && [ "$d" != "$HOME" ]; then
+      forge_add_exclude "$d/.claude/rules/**"
+    fi
     nd="$(dirname "$d")"; [ "$nd" = "$d" ] && break; d="$nd"
   done
 fi
-n_excl=$(printf '%s' "$excludes" | grep -c . || true)
 
 sl="$TARGET/.claude/settings.local.json"
 if [ "$n_excl" -gt 0 ]; then
@@ -373,20 +569,13 @@ if [ "$n_excl" -gt 0 ]; then
     echo "  ! .claude/settings.local.json exists and isn't codeforge-managed — not touching it."
     echo "    (skipped auto-isolation; remove that file and re-run, or edit it by hand.)"
   else
-    excl_json=""
-    while IFS= read -r p; do
-      [ -n "$p" ] || continue
-      if [ -z "$excl_json" ]; then excl_json="$(printf '\n    "%s"' "$p")"
-      else excl_json="$excl_json$(printf ',\n    "%s"' "$p")"; fi
-    done <<EOF
-$excludes
-EOF
     {
       printf '{'
       [ "$n_excl" -gt 0 ] && printf '\n  "claudeMdExcludes": [%s\n  ]' "$excl_json"
       printf '\n}\n'
     } > "$sl"
-    grep -q '^localsettings:managed$' "$manifest" 2>/dev/null || printf 'localsettings:managed\n' >> "$manifest"
+    awk '{ sub(/\r$/, "") } $0 == "localsettings:managed" { found=1 } END { exit !found }' \
+      "$manifest" 2>/dev/null || printf 'localsettings:managed\n' >> "$manifest"
     [ "$n_excl" -gt 0 ]      && echo "  + auto-isolated Claude Code from $n_excl ancestor instruction path(s) -> .claude/settings.local.json (--no-isolate to keep inheritance)"
   fi
 elif [ "$PRIOR_LOCAL_MANAGED" = "1" ] && [ -f "$sl" ]; then
@@ -394,30 +583,59 @@ elif [ "$PRIOR_LOCAL_MANAGED" = "1" ] && [ -f "$sl" ]; then
   echo "  - removed codeforge-managed .claude/settings.local.json (nothing to configure now)"
 fi
 
-# --- .gitignore (merge, don't clobber): ONLY local state ---
-# The generated engine artifacts (.claude/, .agents/, .codex/, AGENTS.md, opencode.json)
-# are COMMITTED with the project so a fresh clone works immediately — no post-clone step,
-# no dependency on codeforge. Only genuinely local/transient state is ignored here.
-touch "$TARGET/.gitignore"
-if ! grep -qx '# codeforge (local state — do not commit)' "$TARGET/.gitignore"; then
-  {
-    printf '\n# codeforge (local state — do not commit)\n'
-    printf '.DS_Store\n.codeforge/workflow/\n.claude/settings.local.json\n'
-  } >> "$TARGET/.gitignore"
-fi
+# --- .gitignore (managed block; user content outside it is preserved) ---
+# `.codeforge/`, the root entrypoints, PROJECT.md, CONTINUITY.md, and docs/ are always
+# trackable. Only engine-specific copies are optional because `.codeforge/sync.*` can rebuild
+# them. The file is created even before `git init`, preventing a later accidental bulk add.
+touch "$gi"
 
-# Ensure .codeforge/workflow/ is ignored even if the marker block predates it or was edited (idempotent).
-if ! grep -qxF '.codeforge/workflow/' "$TARGET/.gitignore"; then
-  # If the file's last byte isn't a newline, add one first so we don't fuse onto that line.
-  [ -s "$TARGET/.gitignore" ] && [ -n "$(tail -c1 "$TARGET/.gitignore")" ] && printf '\n' >> "$TARGET/.gitignore"
-  printf '.codeforge/workflow/\n' >> "$TARGET/.gitignore"
+gi_tmp="$(mktemp "$TARGET/.codeforge-gitignore.XXXXXX")" || { echo "install: cannot create a temp file in $TARGET" >&2; exit 1; }
+awk -v s="$gi_start" -v e="$gi_end" '
+  { line=$0; sub(/\r$/, "", line) }
+  line == s { inblk=1; next }
+  inblk && line == e { inblk=0; next }
+  !inblk { raw[++n]=$0; normalized[n]=line }
+  END { while (n > 0 && normalized[n] == "") n--; for (i=1; i<=n; i++) print raw[i] }
+' "$gi" > "$gi_tmp"
+
+{
+  [ ! -s "$gi_tmp" ] || printf '\n'
+  printf '%s\n' "$gi_start"
+  printf '# Local-only codeforge state\n'
+  printf '.DS_Store\n.codeforge/workflow/\n.claude/settings.local.json\n'
+  if [ "$GENERATED_POLICY" = "ignored" ]; then
+    printf '# Generated adapters (rebuild with .codeforge/sync.sh or sync.ps1)\n'
+    printf '.claude/settings.json\n.claude/skills/\n.claude/agents/codeforge-implementer.md\n'
+    printf '.agents/skills/\n'
+    printf '.codex/config.toml\n.codex/agents/codeforge-implementer.toml\n'
+    printf '/opencode.json\n'
+  fi
+  printf '%s\n' "$gi_end"
+} >> "$gi_tmp"
+chmod 644 "$gi_tmp"
+mv "$gi_tmp" "$gi"
+
+if [ "$GENERATED_POLICY" = "ignored" ]; then
+  echo "  = generated engine adapters are gitignored (regenerate from .codeforge/)"
+  tracked_generated="$(git -C "$TARGET" ls-files -- \
+    .claude/settings.json .claude/skills .claude/agents/codeforge-implementer.md \
+    .agents/skills .codex/config.toml .codex/agents/codeforge-implementer.toml \
+    opencode.json 2>/dev/null || true)"
+  if [ -n "$tracked_generated" ]; then
+    tracked_count="$(printf '%s\n' "$tracked_generated" | awk 'END { print NR }')"
+    echo "  ! generated adapters are ignored for new Git additions, but $tracked_count path(s) are already tracked."
+    echo "    The installer left the Git index unchanged. To untrack them without deleting local files, run:"
+    echo "    git rm -r --cached --ignore-unmatch -- .claude/settings.json .claude/skills .claude/agents/codeforge-implementer.md .agents/skills .codex/config.toml .codex/agents/codeforge-implementer.toml opencode.json"
+  fi
+else
+  echo "  = generated engine adapters remain trackable (fresh clones work immediately)"
 fi
 
 # --- warn if the generated config lacks the forge push/PR gate (points at the codeforge
 #     source baseline that produced it) ---
 warn_gate() {  # $1 = generated file in target, $2 = grep needle, $3 = hint
   if [ -f "$TARGET/$1" ] && ! grep -q "$2" "$TARGET/$1" 2>/dev/null; then
-    echo "  ! $1 has no forge push/PR gate ($3) — add it to the codeforge source, then re-run."
+    echo "  ! $1 has no forge push/PR gate ($3) — update .codeforge/configs, then run .codeforge/sync.sh"
   fi
 }
 warn_gate ".claude/settings.json" "git push"       "ask-tier on git push / gh pr create"
@@ -429,21 +647,38 @@ ok=1
 for p in .claude/skills .agents/skills; do
   [ -e "$TARGET/$p/new-feature/SKILL.md" ] || { echo "  ! discovery FAILED: $p was not generated"; ok=0; }
 done
-for f in AGENTS.md .claude/settings.json .codex/config.toml opencode.json .codeforge/state.template.md; do
+for f in CLAUDE.md AGENTS.md PROJECT.md .claude/settings.json .codex/config.toml opencode.json \
+         .claude/agents/codeforge-implementer.md .codex/agents/codeforge-implementer.toml \
+         .codeforge/WORKFLOW.md .codeforge/skills/new-feature/SKILL.md \
+         .codeforge/agents/codeforge-implementer.md \
+         .codeforge/configs/codex/config.toml .codeforge/sync.sh \
+         .codeforge/sync.ps1 .codeforge/scripts/run-reviewer.mjs \
+         .codeforge/state.template.md; do
   [ -f "$TARGET/$f" ] || { echo "  ! FAILED: $f was not generated"; ok=0; }
 done
 if [ "$ok" != 1 ]; then
   echo "  ✗ install INCOMPLETE — issues above; NOT marking as installed" >&2
   exit 1
 fi
-echo "  ✓ validation: skills (.claude + .agents), AGENTS.md, and engine configs generated"
+echo "  ✓ validation: minimal entrypoints, project context, skills, and engine configs generated"
+
+if command -v node >/dev/null 2>&1; then
+  node_major="$(node -p 'process.versions.node.split(".")[0]' 2>/dev/null || true)"
+  case "$node_major" in
+    ''|*[!0-9]*) echo "  ! Node.js 20+ is required to run cross-engine review/council (found: $(node --version 2>/dev/null || echo unknown))" ;;
+    *) [ "$node_major" -ge 20 ] || echo "  ! Node.js 20+ is required to run cross-engine review/council (found: $(node --version 2>/dev/null || echo unknown))" ;;
+  esac
+else
+  echo "  ! Node.js 20+ was not found; installation is usable, but cross-engine review/council cannot run until Node is installed"
+fi
 
 # --- git: the workflow (branches/commits) and ship gates operate on git ---
 if git -C "$TARGET" rev-parse --is-inside-work-tree >/dev/null 2>&1; then
   :  # already a git repo — the workflow uses it
 elif [ "$GIT_INIT" = "1" ]; then
-  git -C "$TARGET" init -q
-  git -C "$TARGET" add -A
+  command -v git >/dev/null 2>&1 || { echo "error: --git-init requires git on PATH" >&2; exit 2; }
+  git -C "$TARGET" init -q || { echo "error: git init failed in $TARGET" >&2; exit 1; }
+  git -C "$TARGET" add -A || { echo "error: git add failed in $TARGET" >&2; exit 1; }
   if git -C "$TARGET" commit -q -m "chore: adopt codeforge" 2>/dev/null; then
     echo "  + initialized a git repo + baseline commit (chore: adopt codeforge)"
   else
@@ -457,5 +692,5 @@ fi
 echo "codeforge installed."
 echo "  next: (1) fill PROJECT.md   (2) in Codex, trust the project when prompted"
 echo "        (3) open the project in any of Claude Code / Codex / OpenCode"
-echo "  to customize or upgrade: edit the codeforge source, then re-run this installer"
-echo "  against the project (--upgrade, or a bare re-run from inside it)."
+echo "  customize locally in .codeforge/, then run: .codeforge/sync.sh"
+echo "  upgrade the framework baseline by re-running this installer with --upgrade."

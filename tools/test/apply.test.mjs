@@ -1,10 +1,10 @@
 // tools/test/apply.test.mjs
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
+import { mkdtempSync, mkdirSync, writeFileSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { applyModels, applyProfile, applyProject, applyClaudeAgents, applyExecution } from '../../cli/lib/apply.mjs';
+import { applyModels, applyProfile, applyProject, applyExecution } from '../../cli/lib/apply.mjs';
 
 function scaffoldTarget() {
   const dir = mkdtempSync(join(tmpdir(), 'cf-apply-'));
@@ -31,6 +31,23 @@ test('applyModels rewrites the managed block idempotently', () => {
   assert.match(md, /kimi-k3/);
   assert.equal(md.match(/review-policy:start/g).length, 1); // not duplicated
   assert.doesNotMatch(md, /OLD/);
+});
+
+test('applyModels policy block excludes an engine omitted by the wizard', () => {
+  const dir = scaffoldTarget();
+  applyModels(dir, {
+    models: {
+      codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+      claude: { model: 'opus', effort: 'high' },
+      opencode: { model: 'opencode-go/glm-5.2', effort: null },
+    },
+    reviewers: ['codex', 'claude'],
+    council: ['codex', 'claude'],
+  });
+  const md = readFileSync(join(dir, '.codeforge', 'rules', 'models.md'), 'utf8');
+  const block = md.match(/<!-- codeforge:review-policy:start -->[\s\S]*?<!-- codeforge:review-policy:end -->/);
+  assert.ok(block);
+  assert.doesNotMatch(block[0], /opencode/i, 'a skipped engine must not enter the policy allowlist');
 });
 
 test('applyProfile sets the profile in state.template.md', () => {
@@ -67,54 +84,14 @@ test('applyProject inserts rules text containing literal replacement tokens verb
   assert.ok(md.includes(tricky), 'tricky replacement-token content should appear verbatim');
 });
 
-test('applyClaudeAgents writes an agent file with the chosen model when subagent-driven', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-'));
-  mkdirSync(join(dir, '.claude'), { recursive: true });
-  applyClaudeAgents(dir, { claude: { subagents: true, model: { model: 'sonnet', effort: 'high' } } });
-  const f = readFileSync(join(dir, '.claude', 'agents', 'codeforge-implementer.md'), 'utf8');
-  assert.match(f, /^model: sonnet$/m);
-  assert.match(f, /name: codeforge-implementer/);
-});
-
-test('generated implementer agent is commit_policy-aware in its BODY (not just description)', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-cp-'));
-  mkdirSync(join(dir, '.claude'), { recursive: true });
-  applyClaudeAgents(dir, { claude: { subagents: true, model: { model: 'sonnet', effort: 'high' } } });
-  const f = readFileSync(join(dir, '.claude', 'agents', 'codeforge-implementer.md'), 'utf8');
-  const body = f.split('\n---\n').slice(1).join('\n---\n');   // everything after frontmatter
-  assert.match(body, /commit_policy/);
-  assert.match(body, /per-task/);                             // per-task branch present (body)
-  assert.match(body, /commit sha/i);                          // ...reports the commit sha (only per-task branch)
-  assert.match(body, /defer[\s\S]*(do NOT commit|stage[^\n]*only)/i); // defer branch: stage only (body)
-  assert.doesNotMatch(body, /make it pass with the minimal change, run the covering tests, commit,/); // no unconditional commit
-  assert.match(f, /^model: sonnet$/m);                        // still parameterized
-  assert.match(f, /name: codeforge-implementer/);
-});
-
-test('applyClaudeAgents overwrites a stale (pre-commit_policy) agent file', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-stale-'));
-  mkdirSync(join(dir, '.claude', 'agents'), { recursive: true });
-  const p = join(dir, '.claude', 'agents', 'codeforge-implementer.md');
-  writeFileSync(p, '---\nname: codeforge-implementer\nmodel: old\n---\n…runs the covering tests, commit, then report the commit sha.\n');
-  applyClaudeAgents(dir, { claude: { subagents: true, model: { model: 'sonnet' } } });
-  const f = readFileSync(p, 'utf8');
-  assert.match(f, /commit_policy/);            // refreshed
-  assert.match(f, /^model: sonnet$/m);         // and re-parameterized
-});
-
-test('applyClaudeAgents is a no-op for inline mode', () => {
-  const dir = mkdtempSync(join(tmpdir(), 'cf-agents-inline-'));
-  applyClaudeAgents(dir, { claude: { subagents: false, model: null } });
-  assert.equal(existsSync(join(dir, '.claude', 'agents', 'codeforge-implementer.md')), false);
-});
-
 test('applyExecution records the mode in PROJECT.md and overwrites on re-run', () => {
   const dir = scaffoldTarget();
-  applyExecution(dir, { claude: { subagents: true, model: { model: 'sonnet' } } });
+  applyExecution(dir, { execution: { mode: 'subagent-driven' } });
   let md = readFileSync(join(dir, 'PROJECT.md'), 'utf8');
   assert.match(md, /## Execution/);
-  assert.match(md, /Execution: subagent-driven \(model: sonnet\)/);
-  applyExecution(dir, { claude: { subagents: false } }); // switch to inline
+  assert.match(md, /Execution: subagent-driven/);
+  assert.doesNotMatch(md, /model:/);
+  applyExecution(dir, { execution: { mode: 'inline' } }); // switch to inline
   md = readFileSync(join(dir, 'PROJECT.md'), 'utf8');
   assert.match(md, /Execution: inline/);
   assert.doesNotMatch(md, /subagent-driven/);

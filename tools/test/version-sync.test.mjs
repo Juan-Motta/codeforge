@@ -1,4 +1,4 @@
-// The VERSION file (read by the installers to stamp .forge-version) and the
+// The VERSION file (read by the installers to stamp .codeforge/version) and the
 // npm package version (what `npx codeforge` publishes/pins) must never drift.
 
 import { test } from 'node:test';

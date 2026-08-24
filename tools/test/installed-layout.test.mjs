@@ -1,14 +1,11 @@
-// The installed FOOTPRINT is a contract with the host project, and until now nothing asserted it.
-// That is why machinery was able to spread across the target root — `shared/`, `.workflow/`,
-// `.forge-manifest`, `.forge-version` — without any test noticing.
-//
+// The installed FOOTPRINT is a contract with the host project.
 // Rule: the target root may contain ONLY what an engine discovers by fixed convention, the two
 // project-owned files, `docs/`, and the single `.codeforge/` directory holding everything else.
 // A new root entry is a deliberate product decision, so it must fail here and be added on purpose.
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readdirSync, readFileSync, rmSync, existsSync, mkdirSync, writeFileSync, symlinkSync, lstatSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -28,9 +25,6 @@ const ALLOWED_ROOT = new Set([
   '.gitignore',                                      // modified, not created
   '.git',                                            // the fixture's own repo
 ]);
-
-// Machinery that used to sit in the root and must never come back.
-const FORBIDDEN_ROOT = ['shared', '.workflow', '.forge-manifest', '.forge-version'];
 
 function freshTarget(prefix) {
   const target = mkdtempSync(join(tmpdir(), prefix));
@@ -58,21 +52,205 @@ for (const inst of installers) {
         [],
         `unexpected entries in the target root — either move them under .codeforge/ or add them to ALLOWED_ROOT on purpose: ${unexpected.join(', ')}`,
       );
-      for (const gone of FORBIDDEN_ROOT) {
-        assert.equal(existsSync(join(target, gone)), false, `${gone} must not exist in the target root any more`);
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: install fails closed on managed ancestor reparse points`, { skip: inst.skip ? 'pwsh not installed' : false }, (t) => {
+    const target = freshTarget('cf-layout-ancestor-');
+    const external = mkdtempSync(join(tmpdir(), 'cf-layout-external-'));
+    const linked = join(target, '.claude');
+    try {
+      writeFileSync(join(external, 'sentinel.txt'), 'KEEP ME\n');
+      try {
+        symlinkSync(external, linked, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch (error) {
+        t.skip(`directory links unavailable: ${error.message}`);
+        return;
+      }
+      assert.throws(() => inst.run(target), /Command failed/);
+      assert.equal(readFileSync(join(external, 'sentinel.txt'), 'utf8'), 'KEEP ME\n');
+      assert.equal(existsSync(join(external, 'skills')), false, 'installer wrote through .claude link');
+      assert.equal(existsSync(join(target, '.codeforge')), false, 'installer mutated target before rejecting the link');
+    } finally {
+      rmSync(linked, { recursive: false, force: true });
+      rmSync(target, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: install rejects links nested inside canonical .codeforge`, { skip: inst.skip ? 'pwsh not installed' : false }, (t) => {
+    const target = freshTarget('cf-layout-canonical-link-');
+    const external = mkdtempSync(join(tmpdir(), 'cf-layout-canonical-external-'));
+    const linked = join(target, '.codeforge', 'rules');
+    try {
+      mkdirSync(join(target, '.codeforge'), { recursive: true });
+      writeFileSync(join(external, 'sentinel.txt'), 'KEEP ME\n');
+      try {
+        symlinkSync(external, linked, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch (error) {
+        t.skip(`directory links unavailable: ${error.message}`);
+        return;
+      }
+      assert.throws(() => inst.run(target), /Command failed/);
+      assert.equal(readFileSync(join(external, 'sentinel.txt'), 'utf8'), 'KEEP ME\n');
+      assert.deepEqual(readdirSync(external), ['sentinel.txt']);
+    } finally {
+      rmSync(linked, { recursive: false, force: true });
+      rmSync(target, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: sync replaces generated leaf symlinks without overwriting their targets`, { skip: inst.skip ? 'pwsh not installed' : false }, (t) => {
+    const target = freshTarget('cf-layout-symlink-');
+    try {
+      inst.run(target);
+      const victim = join(target, 'victim.txt');
+      writeFileSync(victim, 'KEEP ME\n');
+      const generated = [
+        join(target, '.claude', 'agents', 'codeforge-implementer.md'),
+        join(target, '.codex', 'config.toml'),
+      ];
+      try {
+        for (const path of generated) {
+          rmSync(path, { force: true });
+          symlinkSync(victim, path, 'file');
+        }
+      } catch (error) {
+        t.skip(`symbolic links unavailable: ${error.message}`);
+        return;
+      }
+
+      if (inst.name === 'install.ps1') {
+        execFileSync('pwsh', ['-NoProfile', '-File', join(target, '.codeforge', 'sync.ps1')], { cwd: target, stdio: 'pipe' });
+      } else {
+        execFileSync('bash', [join(target, '.codeforge', 'sync.sh')], { cwd: target, stdio: 'pipe' });
+      }
+
+      assert.equal(readFileSync(victim, 'utf8'), 'KEEP ME\n');
+      for (const path of generated) {
+        assert.equal(lstatSync(path).isSymbolicLink(), false, `${path} remained a symlink`);
+        assert.equal(lstatSync(path).isFile(), true, `${path} was not regenerated as a file`);
       }
     } finally {
       rmSync(target, { recursive: true, force: true });
     }
   });
+
+  test(`${inst.name}: sync rejects a generated leaf that resolves to a directory`, { skip: inst.skip ? 'pwsh not installed' : false }, (t) => {
+    const target = freshTarget('cf-layout-leaf-dir-');
+    const external = mkdtempSync(join(tmpdir(), 'cf-layout-leaf-dir-external-'));
+    const generated = join(target, 'AGENTS.md');
+    try {
+      inst.run(target);
+      rmSync(generated, { force: true });
+      writeFileSync(join(external, 'sentinel.txt'), 'KEEP ME\n');
+      try {
+        symlinkSync(external, generated, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch (error) {
+        t.skip(`directory links unavailable: ${error.message}`);
+        return;
+      }
+
+      const runSync = () => {
+        if (inst.name === 'install.ps1') {
+          execFileSync('pwsh', ['-NoProfile', '-File', join(target, '.codeforge', 'sync.ps1')], { cwd: target, stdio: 'pipe' });
+        } else {
+          execFileSync('bash', [join(target, '.codeforge', 'sync.sh')], { cwd: target, stdio: 'pipe' });
+        }
+      };
+      assert.throws(runSync, /Command failed/);
+      assert.deepEqual(readdirSync(external), ['sentinel.txt'], 'sync wrote a temporary file through the generated leaf');
+      assert.equal(readFileSync(join(external, 'sentinel.txt'), 'utf8'), 'KEEP ME\n');
+    } finally {
+      rmSync(generated, { recursive: false, force: true });
+      rmSync(target, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: failed install retries do not duplicate imported agent context`, { skip: inst.skip ? 'pwsh not installed' : false }, () => {
+    const target = freshTarget('cf-layout-context-retry-');
+    try {
+      writeFileSync(join(target, 'CLAUDE.md'), '# Existing project context\n\nKeep this once.\n');
+      mkdirSync(join(target, '.claude', 'skills'), { recursive: true });
+      writeFileSync(join(target, '.claude', 'skills', 'custom.md'), 'custom skill\n');
+      writeFileSync(join(target, '.claude', 'skills.pre-codeforge.bak'), 'collision\n');
+
+      assert.throws(() => inst.run(target), /Command failed/);
+      assert.throws(() => inst.run(target), /Command failed/);
+
+      const project = readFileSync(join(target, 'PROJECT.md'), 'utf8');
+      assert.equal((project.match(/<!-- codeforge:imported-context:start -->/g) ?? []).length, 1);
+      assert.equal((project.match(/<!-- codeforge:imported-context:end -->/g) ?? []).length, 1);
+      assert.equal((project.match(/Keep this once\./g) ?? []).length, 1);
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: reinstall preserves canonical config edits and additions`, { skip: inst.skip ? 'pwsh not installed' : false }, () => {
+    const target = freshTarget('cf-layout-config-owned-');
+    try {
+      inst.run(target);
+      const codexConfig = join(target, '.codeforge', 'configs', 'codex', 'config.toml');
+      const customConfig = join(target, '.codeforge', 'configs', 'project-local.json');
+      writeFileSync(codexConfig, `${readFileSync(codexConfig, 'utf8')}\n# PROJECT_CONFIG_MARKER\n`);
+      writeFileSync(customConfig, '{"projectOwned":true}\n');
+
+      inst.run(target);
+
+      assert.match(readFileSync(codexConfig, 'utf8'), /PROJECT_CONFIG_MARKER/);
+      assert.match(readFileSync(join(target, '.codex', 'config.toml'), 'utf8'), /PROJECT_CONFIG_MARKER/);
+      assert.equal(readFileSync(customConfig, 'utf8'), '{"projectOwned":true}\n');
+    } finally {
+      rmSync(target, { recursive: true, force: true });
+    }
+  });
+
+  test(`${inst.name}: installed sync fails closed on a linked engine directory`, { skip: inst.skip ? 'pwsh not installed' : false }, (t) => {
+    const target = freshTarget('cf-layout-sync-ancestor-');
+    const external = mkdtempSync(join(tmpdir(), 'cf-layout-sync-external-'));
+    const linked = join(target, '.claude');
+    try {
+      inst.run(target);
+      rmSync(linked, { recursive: true, force: true });
+      writeFileSync(join(external, 'sentinel.txt'), 'KEEP ME\n');
+      try {
+        symlinkSync(external, linked, process.platform === 'win32' ? 'junction' : 'dir');
+      } catch (error) {
+        t.skip(`directory links unavailable: ${error.message}`);
+        return;
+      }
+      const runSync = () => {
+        if (inst.name === 'install.ps1') {
+          execFileSync('pwsh', ['-NoProfile', '-File', join(target, '.codeforge', 'sync.ps1')], { cwd: target, stdio: 'pipe' });
+        } else {
+          execFileSync('bash', [join(target, '.codeforge', 'sync.sh')], { cwd: target, stdio: 'pipe' });
+        }
+      };
+      assert.throws(runSync, /Command failed/);
+      assert.equal(readFileSync(join(external, 'sentinel.txt'), 'utf8'), 'KEEP ME\n');
+      assert.equal(existsSync(join(external, 'skills')), false, 'sync wrote through .claude link');
+    } finally {
+      rmSync(linked, { recursive: false, force: true });
+      rmSync(target, { recursive: true, force: true });
+      rmSync(external, { recursive: true, force: true });
+    }
+  });
 }
 
-test('the framework machinery is all under .codeforge/, and is committable', () => {
+test('the canonical framework source is all under .codeforge/, and is committable', () => {
   const target = freshTarget('cf-layout-content-');
   try {
     execFileSync('bash', [join(REPO, 'install.sh'), target], { stdio: 'pipe' });
 
-    for (const p of ['rules', 'scripts', 'state.template.md', 'manifest', 'version']) {
+    for (const p of [
+      'WORKFLOW.md', 'agents', 'skills', 'rules', 'scripts', 'configs', 'docs', 'templates',
+      'sync.sh', 'sync.ps1', 'state.template.md', 'manifest', 'version',
+    ]) {
       assert.ok(existsSync(join(target, '.codeforge', p)), `.codeforge/${p} is missing`);
     }
     assert.ok(readdirSync(join(target, '.codeforge', 'rules')).length >= 10, 'rules did not land under .codeforge/rules');
@@ -83,7 +261,10 @@ test('the framework machinery is all under .codeforge/, and is committable', () 
     execFileSync('git', ['add', '-A'], { cwd: target, stdio: 'pipe' });
     const staged = execFileSync('git', ['diff', '--cached', '--name-only'], { cwd: target, encoding: 'utf8' }).split('\n');
     assert.ok(staged.some((f) => f.startsWith('.codeforge/rules/')), '.codeforge/rules/ must be trackable, not gitignored');
+    assert.ok(staged.some((f) => f.startsWith('.codeforge/agents/')), '.codeforge/agents/ must be trackable, not gitignored');
     assert.ok(staged.some((f) => f.startsWith('.codeforge/scripts/')), '.codeforge/scripts/ must be trackable, not gitignored');
+    assert.ok(staged.some((f) => f.startsWith('.codeforge/skills/')), '.codeforge/skills/ must be trackable, not gitignored');
+    assert.ok(staged.some((f) => f.startsWith('.codeforge/configs/')), '.codeforge/configs/ must be trackable, not gitignored');
 
     mkdirSync(join(target, '.codeforge', 'workflow'), { recursive: true });
     writeFileSync(join(target, '.codeforge', 'workflow', 'state.md'), '# state\n');
@@ -99,10 +280,8 @@ test('the framework machinery is all under .codeforge/, and is committable', () 
   }
 });
 
-// ci.yml's Windows job asserts a hardcoded list of "runtime files" that must exist after an install.
-// Nothing covered that list, so it drifted: it still demanded `.forge-version` after the path moved
-// to `.codeforge/version`, and the only signal was a red Windows job — invisible on a dev machine
-// where that step never runs. Pin it to reality here so the drift fails locally instead.
+// ci.yml's Windows job asserts a hardcoded list of runtime files. Pin it to the installer contract
+// locally so CI and the generated layout cannot drift apart.
 test("the runtime files ci.yml asserts on Windows actually exist after an install", () => {
   const ci = readFileSync(join(REPO, '.github', 'workflows', 'ci.yml'), 'utf8').replace(/\r\n/g, '\n');
   const m = ci.match(/foreach \(\$f in ([^)]+)\) \{/);
@@ -120,25 +299,37 @@ test("the runtime files ci.yml asserts on Windows actually exist after an instal
   }
 });
 
-test('installing over the pre-.codeforge/ layout removes it instead of leaving both', () => {
-  const target = freshTarget('cf-layout-legacy-');
+test('the installed canonical source can regenerate every engine mirror', () => {
+  const target = freshTarget('cf-layout-sync-');
   try {
-    // Reconstruct the old scattered layout, including its root markers.
-    mkdirSync(join(target, 'shared', 'rules'), { recursive: true });
-    mkdirSync(join(target, '.workflow'), { recursive: true });
-    writeFileSync(join(target, 'shared', 'rules', 'ship-gates.md'), 'stale copy\n');
-    writeFileSync(join(target, '.forge-manifest'), 'rule:ship-gates.md\n');
-    writeFileSync(join(target, '.forge-version'), '0.5.1\n');
-    writeFileSync(join(target, '.workflow', 'state.md'), 'old state\n');
-
     execFileSync('bash', [join(REPO, 'install.sh'), target], { stdio: 'pipe' });
+    const marker = '\nLOCAL_CANONICAL_MARKER\n';
+    writeFileSync(join(target, '.codeforge', 'WORKFLOW.md'), readFileSync(join(target, '.codeforge', 'WORKFLOW.md'), 'utf8') + marker);
+    writeFileSync(join(target, '.codeforge', 'skills', 'new-feature', 'SKILL.md'), readFileSync(join(target, '.codeforge', 'skills', 'new-feature', 'SKILL.md'), 'utf8') + marker);
+    writeFileSync(join(target, '.codeforge', 'configs', 'codex', 'config.toml'), readFileSync(join(target, '.codeforge', 'configs', 'codex', 'config.toml'), 'utf8') + marker);
+    writeFileSync(join(target, '.codeforge', 'agents', 'codeforge-implementer.md'), readFileSync(join(target, '.codeforge', 'agents', 'codeforge-implementer.md'), 'utf8') + marker);
 
-    // Two competing copies of the rules would be worse than either layout alone: nothing would tell
-    // an agent which one it is reading.
-    for (const gone of FORBIDDEN_ROOT) {
-      assert.equal(existsSync(join(target, gone)), false, `${gone} survived the install`);
+    execFileSync('bash', [join(target, '.codeforge', 'sync.sh')], { cwd: target, stdio: 'pipe' });
+
+    assert.match(readFileSync(join(target, 'CLAUDE.md'), 'utf8'), /@\.codeforge\/WORKFLOW\.md/, 'CLAUDE.md does not import the workflow');
+    assert.match(readFileSync(join(target, 'AGENTS.md'), 'utf8'), /`\.codeforge\/WORKFLOW\.md`/, 'AGENTS.md does not bootstrap the workflow');
+    for (const p of ['.codeforge/WORKFLOW.md', '.claude/skills/new-feature/SKILL.md', '.agents/skills/new-feature/SKILL.md', '.codex/config.toml', '.claude/agents/codeforge-implementer.md', '.codex/agents/codeforge-implementer.toml']) {
+      assert.match(readFileSync(join(target, p), 'utf8'), /LOCAL_CANONICAL_MARKER/, `${p} was not regenerated from .codeforge`);
     }
-    assert.ok(existsSync(join(target, '.codeforge', 'rules', 'ship-gates.md')), 'the new layout was not written');
+
+    const claudeAgent = readFileSync(join(target, '.claude', 'agents', 'codeforge-implementer.md'), 'utf8');
+    const codexAgent = readFileSync(join(target, '.codex', 'agents', 'codeforge-implementer.toml'), 'utf8');
+    assert.match(claudeAgent, /^name: codeforge-implementer$/m);
+    assert.doesNotMatch(claudeAgent, /^model:/m, 'Claude adapter should inherit the active model');
+    assert.match(codexAgent, /^name = "codeforge-implementer"$/m);
+    assert.match(codexAgent, /^developer_instructions = '''$/m);
+    assert.doesNotMatch(codexAgent, /^model\s*=/m, 'Codex adapter should inherit the active model');
+    for (const contractTerm of ['commit_policy', 'defer', 'unstaged', 'BLOCKED']) {
+      assert.match(claudeAgent, new RegExp(contractTerm), `Claude adapter lost ${contractTerm}`);
+      assert.match(codexAgent, new RegExp(contractTerm), `Codex adapter lost ${contractTerm}`);
+    }
+    assert.doesNotMatch(claudeAgent, /per-task/);
+    assert.doesNotMatch(codexAgent, /per-task/);
   } finally {
     rmSync(target, { recursive: true, force: true });
   }

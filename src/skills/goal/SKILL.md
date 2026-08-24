@@ -28,13 +28,24 @@ locally — it only automates the discipline.
    `reentries=0`), reset the standard `## Ship-gate checklist` to unchecked, and clear goal-owned
    `## Review log` / `## Blockers` / `## Attempts` (schemas: `.codeforge/rules/goal-state.md`).
 4. **Capability preflight** — prove on the driver engine:
-   - a non-driver reviewer engine is available (`.codeforge/rules/models.md`); **persist the REVIEWERS
-     manifest** (`.codeforge/rules/goal-state.md`);
-   - spawning the reviewer/council CLI **and** the post-GATE-2 `git push` / `gh pr create` are
-     prompt-free — if not, HALT and point the human to `.codeforge/rules/goal-autonomy-setup.md`;
+   - a non-driver reviewer from the authoritative `Default reviewer(s)` allowlist is available
+     (`.codeforge/rules/models.md`); **persist exactly that eligible REVIEWERS manifest**
+     (`.codeforge/rules/goal-state.md`) and never add an unconfigured engine;
+   - spawning the reviewer/council CLI (including outbound network and a bounded probe) **and**
+     the post-GATE-2 `git push` / `gh pr create` are prompt-free — if not, HALT and point the human
+     to `.codeforge/rules/goal-autonomy-setup.md`;
    - reviewer/council output goes to stdout or under `.codeforge/workflow/`;
-   - **(Claude subagent-driven)** `.claude/agents/codeforge-implementer.md` exists and contains
-     `commit_policy` — else HALT (stale agent; re-run codeforge setup);
+   - **(subagent-driven)** validate the active harness adapter against the canonical installed
+     `codeforge-implementer.md` contract in the `.codeforge` agents directory. Claude's
+     `.claude/agents/codeforge-implementer.md` must have YAML frontmatter with
+     `name: codeforge-implementer`, a `description`, the `codeforge:generated-agent` marker, and
+     the complete canonical contract after that marker. Codex's
+     `.codex/agents/codeforge-implementer.toml` must have `name`, `description`,
+     `sandbox_mode = "workspace-write"`,
+     and `developer_instructions`, with `developer_instructions` equal to the complete canonical
+     contract. Both rendered forms must therefore include `commit_policy`. On OpenCode (no native
+     adapter), record the inline fallback and continue; on Claude/Codex, a structurally invalid or
+     stale adapter is a HALT condition (run `.codeforge/sync.sh` or `sync.ps1`);
    - the digest is stable across one test-suite run (`goal-digest.sh` before/after; if it moves,
      HALT naming the unignored generated paths).
    Any failure → write a `## Blockers` line, `status=halted`, and stop. Never degrade to per-round
@@ -56,7 +67,8 @@ Advance `phase`, ticking each ship-gate box as its phase completes:
   driver). `/goal` owns the loop + logging: append a `## Review log` line per round
   (`goal-state.md`); certification = the REVIEWERS set clean at one digest; HALT if the `kind=round`
   count reaches `N` (4) — `sh .codeforge/scripts/goal-state.sh round-count plan`.
-- **tdd** — `commit_policy=defer` (implementers stage only, never commit; write the `step` cursor).
+- **tdd** — `commit_policy=defer` (implementers leave changes unstaged/uncommitted; the parent
+  owns the index; write the `step` cursor).
 - **code-review loop** — review rounds (reviewer + self-pass) → first clean pass → `simplify`
   **once** (record the SIMPLIFY marker) → one re-cert pass → certify. Breaker: HALT at `round-count
   code` == `N`. Global cap: HALT if `reentries >= 3` or code rounds `>= 3·N`.
@@ -102,7 +114,7 @@ continuity, not durable cross-session resume (a v2 follow-up).
 | "It's basically a feature — let /goal handle a bug too." | v1 is feature-only: a bug has no PRD gate and a different phase map. Route to `/fix-bug`. |
 | "Preflight is ceremony — start and approve prompts as they come." | An autonomous loop can't answer a native prompt; it stalls. If reviewer/push aren't prompt-free, HALT and point to `goal-autonomy-setup.md`. |
 | "The review looked fine; skip counting rounds." | The breaker is the only bound on a non-converging loop. Count `kind=round` (goal-state.sh) and HALT at N. |
-| "Commit per task so progress is saved." | Under `/goal`, implementers use `commit_policy=defer`; a mid-loop commit breaks ship-gates. `/goal` makes the single commit at ship. |
+| "Commit or stage per task so progress is saved." | Implementers use `commit_policy=defer` and never touch the index; a mid-loop commit or staged partial task breaks parent-owned certification. `/goal` makes the single commit at ship. |
 | "Push after the gates — the native prompt is the approval." | GATE 2 is an explicit driver-issued approval; the native prompt is bypassable. Commit first, then explicit approval, then push. |
 | "It halted; I resolved the blocker, so resume it." | `halted` is terminal for automation. A human dispositions/resets and starts fresh — `/goal` never self-releases a halt. |
 

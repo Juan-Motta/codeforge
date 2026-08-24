@@ -2,16 +2,16 @@
 
 Two layers of rules apply to every session, both always-on:
 
-1. **Global baseline** — `CLAUDE.md` golden rules + `.codeforge/rules/*`. The framework's
+1. **Global baseline** — `.codeforge/WORKFLOW.md` golden rules + `.codeforge/rules/*`. The framework's
    discipline. Applies **always, without exception**.
 2. **Project rules** — `PROJECT.md` at the repo root (from `PROJECT.template.md`):
    **Persona · Project info · Variables · Special rules**. Project-specific and editable.
 
 ## Load order
 
-Read `PROJECT.md` alongside the global rules at session start (golden rule). All three
-engines auto-load `CLAUDE.md`/`AGENTS.md`, which points here; OpenCode also force-loads
-`PROJECT.md` via `opencode.json` `instructions`.
+The generated `CLAUDE.md` imports `PROJECT.md` and `.codeforge/WORKFLOW.md`. The generated
+`AGENTS.md` requires Codex/OpenCode to read the same two files before doing work; OpenCode also
+force-loads `PROJECT.md` via `opencode.json` `instructions`.
 
 ## Precedence (important)
 
@@ -29,3 +29,9 @@ engines auto-load `CLAUDE.md`/`AGENTS.md`, which points here; OpenCode also forc
 Copy `PROJECT.template.md` → `PROJECT.md`, fill the four sections, commit it. That's the
 whole mechanism — no per-engine config needed (the golden rule + `instructions` handle
 loading).
+
+## Review policy is an allowlist
+
+The `Default reviewer(s)` and `Council advisors` lines in `PROJECT.md` are project-owned
+sources of truth. Installers render them into `.codeforge/rules/models.md`. Listed engines are
+enabled; omitted engines are disabled and must not be introduced as availability fallbacks.

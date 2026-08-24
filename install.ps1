@@ -4,37 +4,34 @@
 # project. Mirror of install.sh.
 #
 #   pwsh ./install.ps1 [target-dir] [-Upgrade] [-GitInit] [-NoIsolate]
+#                              [-IgnoreGenerated | -TrackGenerated]
 #
 # With no target-dir, installs into the current working directory.
 #
-# THIN INSTALL: the target receives only what the agent needs at RUNTIME. All framework
-# machinery (the neutral source in ./src/, the generators sync.sh/ps1, the generation
-# inputs in configs/, and the seed templates) stays in the codeforge repo — never copied
-# into the target. To customize or upgrade, edit the codeforge source and re-run this
-# installer against the target (-Upgrade, or a bare re-run from inside the project).
-#
-# This installer copies the runtime subset into the target, then runs `sync.ps1 -Out <target>`
-# to GENERATE each engine's config + skills straight into the target. No symlinks. The
-# generated engine artifacts are COMMITTED with the target so a fresh clone works with no
-# codeforge dependency at runtime.
-#
-# LANDS IN THE TARGET (runtime only): CLAUDE.md, AGENTS.md, opencode.json, .claude/,
-#   .agents/, .codex/ (generated), .codeforge/rules/*.md + .codeforge/state.template.md + .codeforge/scripts/* (managed),
-#   docs/ scaffolding + CHANGELOG, PROJECT.md + CONTINUITY.md (project-owned, seeded).
-# STAYS IN codeforge (never copied): src/skills (neutral), configs/, sync.sh, sync.ps1,
-#   *.template.md, docs/extending.md.
+# SELF-CONTAINED INSTALL: `.codeforge/` is the canonical installed source. It contains
+# everything required to inspect, customize, and regenerate the harness without a checkout
+# of this repository: instructions, agent contracts, skills, rules, scripts, configs, docs, templates, and
+# sync.sh/sync.ps1. Engine-specific discovery paths are generated from that directory by
+# plain copy (no symlinks).
 #
 param(
   [Parameter(Mandatory = $false)][string]$Target,
   [switch]$Upgrade,
-  [switch]$WithHooks,
   [switch]$GitInit,
-  [switch]$NoIsolate
+  [switch]$NoIsolate,
+  [switch]$IgnoreGenerated,
+  [switch]$TrackGenerated
 )
 $ErrorActionPreference = 'Stop'
 
-if ($WithHooks) {
-  [Console]::Error.WriteLine("  ! -WithHooks is retired (the Claude gate hook is superseded by the CI Verified tier); ignoring.")
+function Exit-CodeforgeError {
+  param([Parameter(Mandatory = $true)][string]$Message, [int]$Code = 2)
+  [Console]::Error.WriteLine($Message)
+  exit $Code
+}
+
+if ($IgnoreGenerated -and $TrackGenerated) {
+  Exit-CodeforgeError '-IgnoreGenerated and -TrackGenerated are mutually exclusive'
 }
 
 $Src = Split-Path -Parent $MyInvocation.MyCommand.Path
@@ -48,19 +45,130 @@ if (Test-Path -LiteralPath $versionFile -PathType Leaf) {
 $Mode = if ($Upgrade) { 'upgrade' } else { 'install' }
 if (-not $Target) { $Target = (Get-Location).Path }
 
-if (-not (Test-Path -PathType Container $Target)) { Write-Error "target dir not found: $Target"; exit 2 }
+if (-not (Test-Path -PathType Container $Target)) { Exit-CodeforgeError "target dir not found: $Target" }
 $Target = (Resolve-Path $Target).Path
+
+function Test-CodeforgeReparsePoint {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  try {
+    $item = Get-Item -LiteralPath $Path -Force -ErrorAction Stop
+    return (($item.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0)
+  } catch {
+    if (($_.Exception -is [System.Management.Automation.ItemNotFoundException]) -or
+        ($_.FullyQualifiedErrorId -like 'PathNotFound*')) {
+      return $false
+    }
+    throw
+  }
+}
+
+function Assert-CodeforgeSafeManagedPath {
+  param([Parameter(Mandatory = $true)][string]$Path)
+  if (Test-CodeforgeReparsePoint -Path $Path) {
+    Exit-CodeforgeError "refusing managed symlink/reparse path: $Path"
+  }
+}
+
+foreach ($relative in @(
+  '.codeforge', '.claude', '.agents', '.codex', 'docs',
+  '.claude/skills', '.claude/agents', '.claude/settings.local.json',
+  '.agents/skills', '.codex/agents',
+  'docs/prds', 'docs/plans', 'docs/research', 'docs/solutions', 'docs/adr', 'docs/e2e',
+  'docs/e2e/reports', 'docs/e2e/use-cases', 'docs/ci-templates',
+  'docs/prds/.gitkeep', 'docs/plans/.gitkeep', 'docs/research/.gitkeep',
+  'docs/solutions/.gitkeep', 'docs/adr/.gitkeep', 'docs/e2e/reports/.gitkeep',
+  'docs/e2e/use-cases/.gitkeep', 'docs/CHANGELOG.md',
+  'PROJECT.md', 'CONTINUITY.md', '.gitignore'
+)) {
+  Assert-CodeforgeSafeManagedPath -Path (Join-Path $Target $relative)
+}
+$managedDocsTemplates = Join-Path $Target 'docs\ci-templates'
+if (Test-Path -LiteralPath $managedDocsTemplates -PathType Container) {
+  $docsLink = Get-ChildItem -LiteralPath $managedDocsTemplates -Recurse -Force -ErrorAction Stop |
+    Where-Object { ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 } |
+    Select-Object -First 1
+  if ($docsLink) {
+    Exit-CodeforgeError "refusing symlink inside managed docs/ci-templates: $($docsLink.FullName)"
+  }
+}
+$canonicalRoot = Join-Path $Target '.codeforge'
+if (Test-Path -LiteralPath $canonicalRoot -PathType Container) {
+  $nestedLink = Get-ChildItem -LiteralPath $canonicalRoot -Recurse -Force -ErrorAction Stop |
+    Where-Object { ($_.Attributes -band [System.IO.FileAttributes]::ReparsePoint) -ne 0 } |
+    Select-Object -First 1
+  if ($nestedLink) {
+    Exit-CodeforgeError "refusing symlink inside canonical .codeforge source: $($nestedLink.FullName)"
+  }
+}
+
+# Preflight the existing managed .gitignore range before creating `.codeforge/` or rewriting any
+# project file. Missing is valid; malformed is ambiguous and must leave the target untouched.
+$gi = Join-Path $Target '.gitignore'
+$giStart = '# codeforge:generated:start'
+$giEnd = '# codeforge:generated:end'
+if (Test-Path -LiteralPath $gi -PathType Leaf) {
+  $preflightLines = @(Get-Content -LiteralPath $gi)
+  $preflightStarts = @()
+  $preflightEnds = @()
+  for ($i = 0; $i -lt $preflightLines.Count; $i++) {
+    if ($preflightLines[$i] -ceq $giStart) { $preflightStarts += $i }
+    if ($preflightLines[$i] -ceq $giEnd) { $preflightEnds += $i }
+  }
+  if (($preflightStarts.Count -gt 0 -or $preflightEnds.Count -gt 0) -and
+      ($preflightStarts.Count -ne 1 -or $preflightEnds.Count -ne 1 -or $preflightStarts[0] -ge $preflightEnds[0])) {
+    Write-Error "malformed codeforge block in $gi; fix/remove '$giStart' and '$giEnd', then re-run"
+    exit 1
+  }
+}
+
+# Validate the single replaceable imported-context range before mutating the target. This makes
+# adoption idempotent across retries and fails closed on ambiguous project-owned content.
+$contextStart = '<!-- codeforge:imported-context:start -->'
+$contextEnd = '<!-- codeforge:imported-context:end -->'
+$projectImportPresent = $false
+$preflightProject = Join-Path $Target 'PROJECT.md'
+if (Test-Path -LiteralPath $preflightProject -PathType Leaf) {
+  $projectLines = @(Get-Content -LiteralPath $preflightProject)
+  $contextStarts = @()
+  $contextEnds = @()
+  for ($i = 0; $i -lt $projectLines.Count; $i++) {
+    if ($projectLines[$i] -ceq $contextStart) { $contextStarts += $i }
+    if ($projectLines[$i] -ceq $contextEnd) { $contextEnds += $i }
+  }
+  if (($contextStarts.Count -gt 0 -or $contextEnds.Count -gt 0) -and
+      ($contextStarts.Count -ne 1 -or $contextEnds.Count -ne 1 -or $contextStarts[0] -ge $contextEnds[0])) {
+    Write-Error "malformed imported-context block in $preflightProject; fix/remove '$contextStart' and '$contextEnd', then re-run"
+    exit 1
+  }
+  $projectImportPresent = $contextStarts.Count -eq 1
+}
+
 # Did a prior forge install own .claude/settings.local.json? (read before the manifest is rewritten)
 $priorLocalManaged = $false
 $mf = Join-Path $Target '.codeforge/manifest'
 if ((Test-Path -LiteralPath $mf -PathType Leaf) -and (Select-String -LiteralPath $mf -Pattern '^localsettings:managed$' -Quiet)) {
   $priorLocalManaged = $true
 }
-if (-not ((Test-Path (Join-Path $Payload 'CLAUDE.md')) -and (Test-Path (Join-Path $Payload 'skills')))) {
-  Write-Error "payload not found — run this from the codeforge repo"; exit 2
+# Preserve a prior project choice unless this invocation explicitly changes it. Fresh installs
+# track generated adapters so clones work immediately without a post-clone command.
+if ($IgnoreGenerated) {
+  $generatedPolicy = 'ignored'
+} elseif ($TrackGenerated) {
+  $generatedPolicy = 'tracked'
+} elseif (Test-Path -LiteralPath $mf -PathType Leaf) {
+  $priorGenerated = Get-Content -LiteralPath $mf | Where-Object { $_ -cmatch '^generated:(tracked|ignored)$' } | Select-Object -First 1
+  $generatedPolicy = if ($priorGenerated) { $priorGenerated.Substring(10) } else { 'tracked' }
+} else {
+  $generatedPolicy = 'tracked'
 }
-if ($Target -eq $Src) { Write-Error "refusing to install into codeforge itself"; exit 2 }
-if ($Target -eq $Payload) { Write-Error "refusing to install into the codeforge payload dir (src/)"; exit 2 }
+if (-not ((Test-Path (Join-Path $Payload 'CLAUDE.md')) -and
+          (Test-Path (Join-Path $Payload 'skills')) -and
+          (Test-Path (Join-Path $Payload 'agents/codeforge-implementer.md')) -and
+          (Test-Path (Join-Path $Payload 'codeforge/scripts/run-reviewer.mjs')))) {
+  Exit-CodeforgeError "payload not found — run this from the codeforge repo"
+}
+if ($Target -eq $Src) { Exit-CodeforgeError "refusing to install into codeforge itself" }
+if ($Target -eq $Payload) { Exit-CodeforgeError "refusing to install into the codeforge payload dir (src/)" }
 
 Write-Host "codeforge $forgeVersion -> installing into: $Target  (mode: $Mode)"
 
@@ -82,80 +190,128 @@ if ($priorVersion -and $priorVersion -ne $forgeVersion -and $forgeVersion -ne 'u
   }
 }
 
-function Has-ForgeMarker([string]$file) {
-  return (Test-Path $file) -and (Select-String -Quiet -SimpleMatch 'Workflow discipline for Claude Code' $file)
+# --- CANONICAL INSTALLED SOURCE: everything required to regenerate the harness ---
+$aw = Join-Path $Target '.codeforge'
+New-Item -ItemType Directory -Force -Path $aw | Out-Null
+$manifest = Join-Path $aw 'manifest'
+Copy-Item (Join-Path $Payload 'CLAUDE.md') (Join-Path $aw 'WORKFLOW.md') -Force
+
+# Framework agent contracts are refreshed by name; differently named project contracts survive.
+$agentsDst = Join-Path $aw 'agents'
+New-Item -ItemType Directory -Force -Path $agentsDst | Out-Null
+foreach ($agent in Get-ChildItem -LiteralPath (Join-Path $Payload 'agents') -File -Filter *.md -Force) {
+  Copy-Item -LiteralPath $agent.FullName -Destination (Join-Path $agentsDst $agent.Name) -Force
 }
 
-# --- self-healing: drop machinery this version no longer installs into the target ---
-# (thin model — migrates a target from an older, bloated install.) Gated on a prior forge
-# install (.codeforge/manifest present) so a FIRST install never touches an unrelated project's
-# own configs/ or skills/ dirs.
-if (Test-Path (Join-Path $Target '.codeforge/manifest')) {
-  $ghSh = Join-Path $Target '.codeforge/scripts/claude-gate-hook.sh'
-  $ghPs1 = Join-Path $Target '.codeforge/scripts/claude-gate-hook.ps1'
-  if ((Test-Path $ghSh) -or (Test-Path $ghPs1)) {
-    Write-Host "  ~ the Claude gate hook (-WithHooks) is retired — enforcement is now the CI Verified tier (docs/ci-templates/)."
-  }
-  # Retired: the opt-in Claude gate hook (superseded by the CI Verified tier).
-  foreach ($rel in '.codeforge/scripts/claude-gate-hook.sh', '.codeforge/scripts/claude-gate-hook.ps1') {
-    $p = Join-Path $Target $rel
-    if (Test-Path $p) { Remove-Item -Force $p; Write-Host "  - removed retired gate hook: $rel" }
-  }
-  # Detect a genuinely OLD (pre-thin) forge install by its machinery; only then migrate
-  # configs/skills, so a routine re-install never relocates an app's own top-level dirs.
-  $oldInstall = $false
-  foreach ($f in 'sync.sh', 'sync.ps1', 'state.template.md', 'PROJECT.template.md', 'CONTINUITY.template.md', 'docs/extending.md') {
-    if (Test-Path (Join-Path $Target $f)) { $oldInstall = $true }
-  }
-  foreach ($f in 'sync.sh', 'sync.ps1', 'state.template.md', 'PROJECT.template.md', 'CONTINUITY.template.md', 'docs/extending.md') {
-    $p = Join-Path $Target $f
-    if (Test-Path $p) { Remove-Item -Force $p; Write-Host "  - removed obsolete framework file: $f" }
-  }
-  # configs/ and neutral skills/ may hold pre-forge user edits — back up rather than delete.
-  $tConfigs = Join-Path $Target 'configs'
-  if ($oldInstall -and (Test-Path -PathType Container $tConfigs)) {
-    $bak = Join-Path $Target 'configs.pre-forge.bak'
-    if (Test-Path $bak) { Remove-Item -Recurse -Force $bak }
-    Move-Item $tConfigs $bak
-    Write-Host "  ! configs/ is obsolete (engine configs are generated now) -> configs.pre-forge.bak; per-project Claude tweaks go in .claude/settings.local.json"
-  }
-  $tSkills = Join-Path $Target 'skills'
-  if ($oldInstall -and (Test-Path -PathType Container $tSkills)) {
-    $bak = Join-Path $Target 'skills.pre-forge.bak'
-    if (Test-Path $bak) { Remove-Item -Recurse -Force $bak }
-    Move-Item $tSkills $bak
-    Write-Host "  ! neutral skills/ is obsolete (skills are generated now) -> skills.pre-forge.bak; add custom skills to the codeforge repo"
+$configsDst = Join-Path $aw 'configs'
+$docsDst = Join-Path $aw 'docs'
+New-Item -ItemType Directory -Force -Path $configsDst, $docsDst | Out-Null
+
+# Configs become project-owned canonical inputs once seeded. Preserve edits and additional files;
+# a missing entry is reseeded on a later install.
+$configsSrc = Join-Path $Payload 'configs'
+foreach ($sourceConfig in Get-ChildItem -LiteralPath $configsSrc -File -Recurse -Force) {
+  $relative = [System.IO.Path]::GetRelativePath($configsSrc, $sourceConfig.FullName)
+  $targetConfig = Join-Path $configsDst $relative
+  New-Item -ItemType Directory -Force -Path (Split-Path -Parent $targetConfig) | Out-Null
+  if (-not (Test-Path -LiteralPath $targetConfig)) {
+    Copy-Item -LiteralPath $sourceConfig.FullName -Destination $targetConfig
   }
 }
 
-# --- remove the pre-.codeforge/ scattered layout, if this target still has it ---
-# Twin of the same block in install.sh. NOT a migration — nothing is carried over, by design. It
-# exists so a re-installed target cannot end up with BOTH layouts, i.e. two competing copies of the
-# rules and scripts with no way to tell which one the agent is reading. Gated on the OLD root
-# markers, so a project that happens to own a `shared/` dir is never touched.
-$oldManifest = Join-Path $Target '.forge-manifest'
-$oldVersion  = Join-Path $Target '.forge-version'
-if ((Test-Path $oldManifest) -or (Test-Path $oldVersion)) {
-  Write-Host "  ~ this target uses the pre-.codeforge/ layout — removing the old machinery (no migration; see the plan doc)."
-  $oldShared = Join-Path $Target 'shared'
-  if (Test-Path $oldShared) { Remove-Item -Recurse -Force $oldShared }
-  foreach ($p in $oldManifest, $oldVersion) { if (Test-Path $p) { Remove-Item -Force $p } }
-  # .workflow/ is volatile per-developer state and gitignored; nothing durable is lost.
-  $oldWf = Join-Path $Target '.workflow'
-  if (Test-Path $oldWf) {
-    Remove-Item -Recurse -Force $oldWf
-    Write-Host "    - removed .workflow/ (volatile state; a workflow re-creates it at .codeforge/workflow/)"
-  }
-  Write-Host "    - removed shared/, .forge-manifest, .forge-version"
+# Framework docs refresh by name while differently named project additions survive.
+foreach ($sourceDoc in Get-ChildItem -LiteralPath (Join-Path $Payload 'docs') -Force) {
+  Copy-Item -LiteralPath $sourceDoc.FullName -Destination $docsDst -Recurse -Force
 }
 
-# --- MANAGED: CLAUDE.md (back up a pre-existing, non-forge one) ---
+# Skills are managed per directory so project-specific additions survive an upgrade.
+$skillsDst = Join-Path $aw 'skills'
+New-Item -ItemType Directory -Force -Path $skillsDst | Out-Null
+$sourceSkills = @(Get-ChildItem -LiteralPath (Join-Path $Payload 'skills') -Directory -Force)
+$newSkills = @($sourceSkills.Name | Sort-Object)
+if (Test-Path -LiteralPath $manifest -PathType Leaf) {
+  foreach ($line in Get-Content -LiteralPath $manifest) {
+    if ($line -like 'skill:*') {
+      $n = $line.Substring(6)
+      if ($n -notmatch '^[a-z0-9]+(?:-[a-z0-9]+)*$') {
+        [Console]::Error.WriteLine("  ! ignoring unsafe manifest skill entry: $n")
+      } elseif ($newSkills -notcontains $n) {
+        Remove-Item -LiteralPath (Join-Path $skillsDst $n) -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Host "  - pruned framework skill removed upstream: $n"
+      }
+    }
+  }
+}
+foreach ($skill in $sourceSkills) {
+  $dst = Join-Path $skillsDst $skill.Name
+  if (Test-Path -LiteralPath $dst) { Remove-Item -LiteralPath $dst -Recurse -Force }
+  Copy-Item -LiteralPath $skill.FullName -Destination $skillsDst -Recurse -Force
+}
+
+if (Test-Path -LiteralPath (Join-Path $aw 'templates')) {
+  Remove-Item -LiteralPath (Join-Path $aw 'templates') -Recurse -Force
+}
+New-Item -ItemType Directory -Force -Path (Join-Path $aw 'templates') | Out-Null
+Copy-Item (Join-Path $Payload 'PROJECT.template.md') (Join-Path $aw 'templates/PROJECT.md') -Force
+Copy-Item (Join-Path $Payload 'CONTINUITY.template.md') (Join-Path $aw 'templates/CONTINUITY.md') -Force
+Copy-Item (Join-Path $Payload 'sync.sh') (Join-Path $aw 'sync.sh') -Force
+Copy-Item (Join-Path $Payload 'sync.ps1') (Join-Path $aw 'sync.ps1') -Force
+
+# --- PROJECT CONTEXT ADOPTION: preserve pre-existing agent entrypoints verbatim ---
+$tProject = Join-Path $Target 'PROJECT.md'
+if (-not (Test-Path $tProject)) {
+  Copy-Item (Join-Path $aw 'templates/PROJECT.md') $tProject
+  Write-Host "  + created PROJECT.md (fill in persona/info/variables/special rules)"
+}
+
 $tClaude = Join-Path $Target 'CLAUDE.md'
-if ((Test-Path $tClaude) -and -not (Has-ForgeMarker $tClaude)) {
-  Copy-Item $tClaude "$tClaude.pre-forge.bak" -Force
-  Write-Host "  ! backed up existing CLAUDE.md -> CLAUDE.md.pre-forge.bak (move project-specifics into PROJECT.md)"
+$tAgents = Join-Path $Target 'AGENTS.md'
+$oldClaude = $null
+$oldAgents = $null
+if ((Test-Path -LiteralPath $tClaude -PathType Leaf) -and -not (Select-String -LiteralPath $tClaude -SimpleMatch 'codeforge:entrypoint' -Quiet)) {
+  $oldClaude = Get-Content -LiteralPath $tClaude -Raw
+  $backups = Join-Path $aw 'backups'
+  New-Item -ItemType Directory -Force -Path $backups | Out-Null
+  $backup = Join-Path $backups 'CLAUDE.md.pre-codeforge.bak'
+  if (-not (Test-Path -LiteralPath $backup)) { Copy-Item $tClaude $backup }
 }
-Copy-Item (Join-Path $Payload 'CLAUDE.md') $tClaude -Force
+if ((Test-Path -LiteralPath $tAgents -PathType Leaf) -and -not (Select-String -LiteralPath $tAgents -SimpleMatch 'codeforge:entrypoint' -Quiet)) {
+  $oldAgents = Get-Content -LiteralPath $tAgents -Raw
+  $backups = Join-Path $aw 'backups'
+  New-Item -ItemType Directory -Force -Path $backups | Out-Null
+  $backup = Join-Path $backups 'AGENTS.md.pre-codeforge.bak'
+  if (-not (Test-Path -LiteralPath $backup)) { Copy-Item $tAgents $backup }
+}
+if ($null -ne $oldClaude -or $null -ne $oldAgents) {
+  $blockParts = @($contextStart, '')
+  if ($null -ne $oldClaude -and $null -ne $oldAgents -and $oldClaude -ceq $oldAgents) {
+    $blockParts += '### From existing CLAUDE.md and AGENTS.md', '', $oldClaude
+  } else {
+    if ($null -ne $oldClaude) { $blockParts += '### From existing CLAUDE.md', '', $oldClaude }
+    if ($null -ne $oldAgents) { $blockParts += '### From existing AGENTS.md', '', $oldAgents }
+  }
+  $blockParts += '', $contextEnd
+  $currentProjectLines = @(Get-Content -LiteralPath $tProject)
+  if ($projectImportPresent) {
+    $startIndex = [Array]::IndexOf($currentProjectLines, $contextStart)
+    $endIndex = [Array]::IndexOf($currentProjectLines, $contextEnd)
+    $prefix = if ($startIndex -gt 0) { @($currentProjectLines[0..($startIndex - 1)]) } else { @() }
+    $suffix = if ($endIndex -lt ($currentProjectLines.Count - 1)) { @($currentProjectLines[($endIndex + 1)..($currentProjectLines.Count - 1)]) } else { @() }
+    $updatedProjectLines = @($prefix) + @($blockParts) + @($suffix)
+  } else {
+    $updatedProjectLines = @($currentProjectLines) + @('', '## Imported agent context', '') + @($blockParts)
+  }
+  $projectTemporary = Join-Path $Target ('.codeforge-project.' + [Guid]::NewGuid().ToString('N'))
+  try {
+    $projectContent = ($updatedProjectLines -join "`n").TrimEnd("`r", "`n") + "`n"
+    [System.IO.File]::WriteAllText($projectTemporary, $projectContent, [System.Text.UTF8Encoding]::new($false))
+    [System.IO.File]::Move($projectTemporary, $tProject, $true)
+  } finally {
+    if (Test-Path -LiteralPath $projectTemporary) { Remove-Item -LiteralPath $projectTemporary -Force }
+  }
+  $projectImportPresent = $true
+  Write-Host "  + preserved existing agent context in PROJECT.md (originals backed up under .codeforge/backups/)"
+}
 
 # --- MANAGED: framework .codeforge/rules/ (per-entry overwrite by name) ---
 New-Item -ItemType Directory -Force -Path (Join-Path $Target '.codeforge/rules') | Out-Null
@@ -163,7 +319,6 @@ $newRules = @(Get-ChildItem -File (Join-Path $Payload 'codeforge/rules') -Filter
 
 # Prune framework rules removed upstream (see install.sh for rationale). Project-owned rules
 # aren't in the manifest, so they're untouched. No manifest yet = skip prune.
-$manifest = Join-Path $Target '.codeforge/manifest'
 if (Test-Path $manifest) {
   foreach ($line in Get-Content $manifest) {
     if ($line -like 'rule:*') {
@@ -184,8 +339,9 @@ foreach ($f in Get-ChildItem -File (Join-Path $Payload 'codeforge/rules') -Filte
   Copy-Item $f.FullName (Join-Path $Target ".codeforge/rules/$($f.Name)") -Force
 }
 
-# Record the framework-owned manifest for the next upgrade's prune (rules only).
-Set-Content -Path $manifest -Value (@($newRules | ForEach-Object { "rule:$_" }))
+# Record framework-owned entries for the next selective upgrade/prune.
+$manifestLines = @($newRules | ForEach-Object { "rule:$_" }) + @($newSkills | ForEach-Object { "skill:$_" }) + "generated:$generatedPolicy"
+Set-Content -Path $manifest -Value $manifestLines
 
 # Stamp the version that produced this install, for drift detection on the next run.
 Set-Content -Path (Join-Path $Target '.codeforge/version') -Value $forgeVersion
@@ -212,30 +368,29 @@ foreach ($d in 'prds', 'plans', 'research', 'solutions', 'adr', 'e2e/reports', '
 }
 
 # --- MANAGED: CI templates (Verified-tier gate + activation guide) ---
-$ctSrc = Join-Path $Payload 'docs/ci-templates'
+$ctSrc = Join-Path $aw 'docs/ci-templates'
 if (Test-Path $ctSrc) {
   $ctDst = Join-Path $Target 'docs/ci-templates'
   New-Item -ItemType Directory -Force -Path $ctDst | Out-Null
   foreach ($f in Get-ChildItem -File $ctSrc) {
     $dst = Join-Path $ctDst $f.Name
-    if ((Test-Path $dst) -and -not (Select-String -LiteralPath $dst -Pattern 'codeforge' -Quiet) -and -not (Test-Path "$dst.pre-forge.bak")) {
-      Copy-Item $dst "$dst.pre-forge.bak"
-      Write-Host "  ! backed up existing docs/ci-templates/$($f.Name) -> $($f.Name).pre-forge.bak"
+    if ((Test-Path $dst) -and -not (Select-String -LiteralPath $dst -Pattern 'codeforge' -Quiet) -and -not (Test-Path "$dst.pre-codeforge.bak")) {
+      Copy-Item $dst "$dst.pre-codeforge.bak"
+      Write-Host "  ! backed up existing docs/ci-templates/$($f.Name) -> $($f.Name).pre-codeforge.bak"
     }
     Copy-Item $f.FullName $dst -Force
   }
 }
 
 # --- PROJECT-OWNED: PROJECT.md / CONTINUITY.md / docs/CHANGELOG.md (create only if missing) ---
-$tProject = Join-Path $Target 'PROJECT.md'
 if (-not (Test-Path $tProject)) {
-  Copy-Item (Join-Path $Payload 'PROJECT.template.md') $tProject
+  Copy-Item (Join-Path $aw 'templates/PROJECT.md') $tProject
   Write-Host "  + created PROJECT.md (fill in persona/info/variables/special rules)"
 }
 $tCont = Join-Path $Target 'CONTINUITY.md'
-if (-not (Test-Path $tCont)) { Copy-Item (Join-Path $Payload 'CONTINUITY.template.md') $tCont }
+if (-not (Test-Path $tCont)) { Copy-Item (Join-Path $aw 'templates/CONTINUITY.md') $tCont }
 $tChangelog = Join-Path $Target 'docs/CHANGELOG.md'
-if (-not (Test-Path $tChangelog)) { Copy-Item (Join-Path $Payload 'docs/CHANGELOG.md') $tChangelog }
+if (-not (Test-Path $tChangelog)) { Copy-Item (Join-Path $aw 'docs/CHANGELOG.md') $tChangelog }
 
 # --- re-render the wizard-owned values FROM PROJECT.md (project-owned) into the MANAGED files ---
 # Twin of the same block in install.sh — see the rationale there. All comparisons use the
@@ -246,15 +401,23 @@ if (-not (Test-Path $tChangelog)) { Copy-Item (Join-Path $Payload 'docs/CHANGELO
 # by name on every install, so a value written only there is silently reset by `--upgrade`.
 # Only value lines are substituted. Missing section / line / unparseable value => no-op.
 if (Test-Path $tProject) {
-  # Body of '## Review policy' up to the next top-level heading (CRLF-tolerant).
+  # Body of the FIRST '## Review policy' section only (CRLF-tolerant). Duplicates are
+  # ambiguous, so match install.sh: warn and never combine values from separate sections.
   $policy = @()
   $inSec = $false
+  $seenPolicy = $false
+  $policyCount = 0
   foreach ($raw in Get-Content -LiteralPath $tProject) {
     $l = $raw -replace "`r$", ''
-    if ($l -ceq '## Review policy') { $inSec = $true; continue }
+    if ($l -ceq '## Review policy') {
+      $policyCount++
+      if (-not $seenPolicy) { $seenPolicy = $true; $inSec = $true } else { $inSec = $false }
+      continue
+    }
     if ($inSec -and $l -clike '## *') { $inSec = $false }
     if ($inSec) { $policy += $l }
   }
+  if ($policyCount -gt 1) { Write-Host "  ! PROJECT.md has $policyCount '## Review policy' sections — using the first" }
   $firstMatch = {
     param($pattern)
     $hit = $policy | Where-Object { $_ -cmatch $pattern } | Select-Object -First 1
@@ -265,20 +428,31 @@ if (Test-Path $tProject) {
   $profHit = & $firstMatch '^\s*Gate profile:\s*[A-Za-z][A-Za-z-]*'
   $prof = if ($profHit -cmatch '^\s*Gate profile:\s*([A-Za-z][A-Za-z-]*)') { $Matches[1] } else { '' }
 
-  # models.md: swap the two value lines inside the managed block, in place.
+  # models.md: substitute each present value independently inside one valid marker pair.
   $mm = Join-Path $Target '.codeforge/rules/models.md'
-  if ($revLine -and $couLine -and (Test-Path $mm)) {
-    $out = New-Object System.Collections.Generic.List[string]
-    $inBlk = $false
-    foreach ($line in Get-Content -LiteralPath $mm) {
-      if ($line -cmatch 'codeforge:review-policy:start') { $inBlk = $true;  $out.Add($line); continue }
-      if ($line -cmatch 'codeforge:review-policy:end')   { $inBlk = $false; $out.Add($line); continue }
-      if ($inBlk -and $line -cmatch '^\s*Default reviewer\(s\):') { $out.Add($revLine); continue }
-      if ($inBlk -and $line -cmatch '^\s*Council advisors:')      { $out.Add($couLine); continue }
-      $out.Add($line)
+  if (($revLine -or $couLine) -and (Test-Path $mm)) {
+    $mmLines = @(Get-Content -LiteralPath $mm)
+    $starts = @()
+    $ends = @()
+    for ($i = 0; $i -lt $mmLines.Count; $i++) {
+      if ($mmLines[$i] -cmatch 'codeforge:review-policy:start') { $starts += $i }
+      if ($mmLines[$i] -cmatch 'codeforge:review-policy:end') { $ends += $i }
     }
-    Set-Content -Path $mm -Value $out
-    Write-Host "  = review policy applied from PROJECT.md -> .codeforge/rules/models.md"
+    if ($starts.Count -eq 1 -and $ends.Count -eq 1 -and $starts[0] -lt $ends[0]) {
+      $out = New-Object System.Collections.Generic.List[string]
+      $inBlk = $false
+      foreach ($line in $mmLines) {
+        if ($line -cmatch 'codeforge:review-policy:start') { $inBlk = $true;  $out.Add($line); continue }
+        if ($line -cmatch 'codeforge:review-policy:end')   { $inBlk = $false; $out.Add($line); continue }
+        if ($inBlk -and $revLine -and $line -cmatch '^\s*Default reviewer\(s\):') { $out.Add($revLine); continue }
+        if ($inBlk -and $couLine -and $line -cmatch '^\s*Council advisors:')      { $out.Add($couLine); continue }
+        $out.Add($line)
+      }
+      Set-Content -Path $mm -Value $out
+      Write-Host "  = review policy applied from PROJECT.md -> .codeforge/rules/models.md"
+    } else {
+      Write-Host "  ! .codeforge/rules/models.md has a malformed review-policy marker pair — left untouched"
+    }
   }
 
   # state.template.md: only a profile check-gates accepts may be written through, or the user gets a
@@ -300,21 +474,25 @@ if (Test-Path $tProject) {
 # --- back up any pre-existing, NON-forge per-engine skills dir before sync overwrites it ---
 foreach ($eng in '.claude', '.agents') {
   $sd = Join-Path $Target "$eng/skills"
-  if ((Test-Path $sd) -and -not (Test-Path (Join-Path $sd '.forge-generated'))) {
-    Move-Item $sd "$sd.pre-forge.bak"
-    Write-Host "  ! backed up existing $eng/skills -> $eng/skills.pre-forge.bak (add custom skills to the codeforge repo)"
+  if ((Test-Path $sd) -and -not (Test-Path (Join-Path $sd '.codeforge-generated'))) {
+    Move-Item $sd "$sd.pre-codeforge.bak"
+    Write-Host "  ! backed up existing $eng/skills -> $eng/skills.pre-codeforge.bak (add custom skills under .codeforge/skills)"
   }
 }
-# back up a real, non-forge AGENTS.md before sync overwrites it
-$tAgents = Join-Path $Target 'AGENTS.md'
-if ((Test-Path $tAgents) -and -not (Has-ForgeMarker $tAgents)) {
-  Copy-Item $tAgents "$tAgents.pre-forge.bak" -Force
-  Write-Host "  ! backed up existing AGENTS.md -> AGENTS.md.pre-forge.bak"
-}
 
-# --- GENERATE engine dirs + AGENTS.md + opencode.json via sync (reads the codeforge source,
-#     writes straight into the target) ---
-& (Join-Path $Src 'src/sync.ps1') -Out $Target | Out-Null
+
+# Preserve a pre-existing custom definition before sync claims codeforge's generated filename.
+foreach ($agentPath in '.claude/agents/codeforge-implementer.md', '.codex/agents/codeforge-implementer.toml') {
+  $existing = Join-Path $Target $agentPath
+  if ((Test-Path -LiteralPath $existing -PathType Leaf) -and
+      -not (Select-String -LiteralPath $existing -SimpleMatch 'codeforge:generated-agent' -Quiet)) {
+    $backup = "$existing.pre-codeforge.bak"
+    if (-not (Test-Path -LiteralPath $backup)) { Copy-Item -LiteralPath $existing -Destination $backup }
+    Write-Host "  ! backed up existing $agentPath -> $agentPath.pre-codeforge.bak"
+  }
+}
+# --- GENERATE engine dirs + AGENTS.md + opencode.json from the installed source ---
+& (Join-Path $aw 'sync.ps1') -Out $Target | Out-Null
 
 # --- Claude Code .claude/settings.local.json: auto-isolation ---
 # Auto-isolation (default; -NoIsolate to keep inheritance) adds claudeMdExcludes so Claude Code
@@ -350,35 +528,72 @@ if ($excludes.Count -gt 0) {
   Write-Host "  - removed codeforge-managed .claude/settings.local.json (nothing to configure now)"
 }
 
-# --- .gitignore (merge, don't clobber): ONLY local state (generated files are committed) ---
-$gi = Join-Path $Target '.gitignore'
-if (-not (Test-Path $gi)) { New-Item -ItemType File -Path $gi | Out-Null }
-$marker = '# codeforge (local state — do not commit)'
-if (-not (Select-String -Quiet -SimpleMatch $marker $gi)) {
-  $block = @"
-
-# codeforge (local state — do not commit)
-.DS_Store
-.codeforge/workflow/
-.claude/settings.local.json
-"@
-  Add-Content -Path $gi -Value $block
+# --- .gitignore (managed block; user content outside it is preserved) ---
+# `.codeforge/`, root entrypoints, PROJECT.md, CONTINUITY.md, and docs/ stay trackable.
+# Create this file even before `git init` so a later bulk add has the chosen policy already.
+if (-not (Test-Path -LiteralPath $gi -PathType Leaf)) { New-Item -ItemType File -Path $gi | Out-Null }
+$giLines = @(Get-Content -LiteralPath $gi)
+$starts = @()
+$ends = @()
+for ($i = 0; $i -lt $giLines.Count; $i++) {
+  if ($giLines[$i] -ceq $giStart) { $starts += $i }
+  if ($giLines[$i] -ceq $giEnd) { $ends += $i }
+}
+$base = @()
+for ($i = 0; $i -lt $giLines.Count; $i++) {
+  if ($starts.Count -eq 1 -and $i -ge $starts[0] -and $i -le $ends[0]) { continue }
+  $base += $giLines[$i]
+}
+while ($base.Count -gt 0 -and $base[-1] -ceq '') {
+  if ($base.Count -eq 1) { $base = @() } else { $base = @($base[0..($base.Count - 2)]) }
 }
 
-# Ensure .codeforge/workflow/ is ignored (idempotent, exact-line), independent of the marker block.
-$giPath = Join-Path $Target '.gitignore'
-$giLines = if (Test-Path $giPath) { Get-Content -Path $giPath } else { @() }
-# Exact, case-SENSITIVE, whole-line match (mirrors the sh side's `grep -qxF`) — NOT .Trim()/-eq,
-# which would let ` .codeforge/workflow/` or `.WORKFLOW/` falsely suppress the required entry.
-if (-not ($giLines | Where-Object { $_ -ceq '.codeforge/workflow/' })) {
-  Add-Content -Path $giPath -Value '.codeforge/workflow/'
+$block = @(
+  $giStart,
+  '# Local-only codeforge state',
+  '.DS_Store',
+  '.codeforge/workflow/',
+  '.claude/settings.local.json'
+)
+if ($generatedPolicy -ceq 'ignored') {
+  $block += @(
+    '# Generated adapters (rebuild with .codeforge/sync.sh or sync.ps1)',
+    '.claude/settings.json', '.claude/skills/', '.claude/agents/codeforge-implementer.md',
+    '.agents/skills/',
+    '.codex/config.toml', '.codex/agents/codeforge-implementer.toml',
+    '/opencode.json'
+  )
+}
+$block += $giEnd
+$out = @($base)
+if ($out.Count -gt 0) { $out += '' }
+$out += $block
+Set-Content -LiteralPath $gi -Value $out
+
+if ($generatedPolicy -ceq 'ignored') {
+  Write-Host '  = generated engine adapters are gitignored (regenerate from .codeforge/)'
+  if (Get-Command git -ErrorAction SilentlyContinue) {
+    $generatedPathspecs = @(
+      '.claude/settings.json', '.claude/skills', '.claude/agents/codeforge-implementer.md',
+      '.agents/skills', '.codex/config.toml', '.codex/agents/codeforge-implementer.toml',
+      'opencode.json'
+    )
+    $trackedGenerated = @(& git -C $Target ls-files -- @generatedPathspecs 2>$null)
+    if ($LASTEXITCODE -eq 0 -and $trackedGenerated.Count -gt 0) {
+      Write-Host "  ! generated adapters are ignored for new Git additions, but $($trackedGenerated.Count) path(s) are already tracked."
+      Write-Host '    The installer left the Git index unchanged. To untrack them without deleting local files, run:'
+      Write-Host '    git rm -r --cached --ignore-unmatch -- .claude/settings.json .claude/skills .claude/agents/codeforge-implementer.md .agents/skills .codex/config.toml .codex/agents/codeforge-implementer.toml opencode.json'
+    }
+  }
+} else {
+  Write-Host '  = generated engine adapters remain trackable (fresh clones work immediately)'
 }
 
 # --- warn if the generated config lacks the forge push/PR gate ---
 function Warn-Gate([string]$rel, [string]$needle, [string]$hint) {
   $f = Join-Path $Target $rel
   if ((Test-Path $f) -and -not (Select-String -Quiet -SimpleMatch $needle $f)) {
-    Write-Host "  ! $rel has no forge push/PR gate ($hint) — add it to the codeforge source, then re-run."
+    Write-Host "  ! $rel has no forge push/PR gate ($hint) — update .codeforge/configs, then run .codeforge/sync.ps1"
   }
 }
 Warn-Gate '.claude/settings.json' 'git push'       'ask-tier on git push / gh pr create'
@@ -392,34 +607,57 @@ foreach ($p in '.claude/skills', '.agents/skills') {
     Write-Host "  ! discovery FAILED: $p was not generated"; $ok = $false
   }
 }
-foreach ($f in 'AGENTS.md', '.claude/settings.json', '.codex/config.toml', 'opencode.json', '.codeforge/state.template.md') {
+foreach ($f in 'CLAUDE.md', 'AGENTS.md', 'PROJECT.md', '.claude/settings.json', '.claude/agents/codeforge-implementer.md', '.codex/config.toml', '.codex/agents/codeforge-implementer.toml', 'opencode.json', '.codeforge/WORKFLOW.md', '.codeforge/agents/codeforge-implementer.md', '.codeforge/skills/new-feature/SKILL.md', '.codeforge/configs/codex/config.toml', '.codeforge/sync.sh', '.codeforge/sync.ps1', '.codeforge/scripts/run-reviewer.mjs', '.codeforge/state.template.md') {
   if (-not (Test-Path (Join-Path $Target $f))) { Write-Host "  ! FAILED: $f was not generated"; $ok = $false }
 }
 if (-not $ok) {
-  Write-Host "  x install INCOMPLETE — issues above; NOT marking as installed"; exit 1
+  [Console]::Error.WriteLine("  x install INCOMPLETE — issues above; NOT marking as installed"); exit 1
 }
-Write-Host "  + validation: skills (.claude + .agents), AGENTS.md, and engine configs generated"
+Write-Host "  + validation: minimal entrypoints, project context, skills, and engine configs generated"
 
-# --- git: the workflow (branches/commits) and ship gates operate on git ---
-& git -C $Target rev-parse --is-inside-work-tree *> $null
-if ($LASTEXITCODE -eq 0) {
-  # already a git repo — the workflow uses it
-} elseif ($GitInit) {
-  & git -C $Target init -q
-  & git -C $Target add -A
-  & git -C $Target commit -q -m "chore: adopt codeforge" 2>$null
-  if ($LASTEXITCODE -eq 0) {
-    Write-Host "  + initialized a git repo + baseline commit (chore: adopt codeforge)"
-  } else {
-    Write-Host "  + initialized a git repo (baseline commit skipped — set git user.name/email, then commit)"
+$nodeCommand = Get-Command node -ErrorAction SilentlyContinue
+if ($nodeCommand) {
+  try {
+    $nodeVersion = (& node --version)
+    $nodeMajor = if ($nodeVersion -match '^v(\d+)') { [int]$Matches[1] } else { 0 }
+  } catch { $nodeMajor = 0; $nodeVersion = 'unknown' }
+  if ($nodeMajor -lt 20) {
+    Write-Host "  ! Node.js 20+ is required to run cross-engine review/council (found: $nodeVersion)"
   }
 } else {
-  Write-Host "  ! not a git repo — codeforge's workflow (branches, commits) and the ship gates assume git."
-  Write-Host "    Run 'git init' here, or re-run the installer with -GitInit."
+  Write-Host '  ! Node.js 20+ was not found; installation is usable, but cross-engine review/council cannot run until Node is installed'
+}
+
+# --- git: the workflow (branches/commits) and ship gates operate on git ---
+$gitCommand = Get-Command git -ErrorAction SilentlyContinue
+if (-not $gitCommand) {
+  if ($GitInit) { Exit-CodeforgeError '-GitInit requires git on PATH' }
+  Write-Host "  ! git was not found — codeforge's workflow (branches, commits) and ship gates assume git."
+  Write-Host "    Install git, then run 'git init' here or re-run with -GitInit."
+} else {
+  & git -C $Target rev-parse --is-inside-work-tree *> $null
+  $insideGit = $LASTEXITCODE -eq 0
+  if ($insideGit) {
+  # already a git repo — the workflow uses it
+  } elseif ($GitInit) {
+    & git -C $Target init -q
+    if ($LASTEXITCODE -ne 0) { Exit-CodeforgeError "git init failed in $Target" -Code 1 }
+    & git -C $Target add -A
+    if ($LASTEXITCODE -ne 0) { Exit-CodeforgeError "git add failed in $Target" -Code 1 }
+    & git -C $Target commit -q -m "chore: adopt codeforge" 2>$null
+    if ($LASTEXITCODE -eq 0) {
+      Write-Host "  + initialized a git repo + baseline commit (chore: adopt codeforge)"
+    } else {
+      Write-Host "  + initialized a git repo (baseline commit skipped — set git user.name/email, then commit)"
+    }
+  } else {
+    Write-Host "  ! not a git repo — codeforge's workflow (branches, commits) and the ship gates assume git."
+    Write-Host "    Run 'git init' here, or re-run the installer with -GitInit."
+  }
 }
 
 Write-Host "codeforge installed."
 Write-Host "  next: (1) fill PROJECT.md   (2) in Codex, trust the project when prompted"
 Write-Host "        (3) open the project in any of Claude Code / Codex / OpenCode"
-Write-Host "  to customize or upgrade: edit the codeforge source, then re-run this installer"
-Write-Host "  against the project (-Upgrade, or a bare re-run from inside it)."
+Write-Host "  customize locally in .codeforge/, then run: pwsh .codeforge/sync.ps1"
+Write-Host "  upgrade the framework baseline by re-running this installer with -Upgrade."

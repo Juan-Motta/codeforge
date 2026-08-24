@@ -2,11 +2,13 @@ import React from 'react';
 import { render, Box, useStdout } from 'ink';
 import { makeDefaultAnswers } from './state.mjs';
 import { detectAll } from './lib/detect.mjs';
+import { wizardSteps } from './lib/wizard-steps.mjs';
 import Splash from './components/Splash.mjs';
 import ReviewPolicy from './components/ReviewPolicy.mjs';
 import Gates from './components/Gates.mjs';
 import Project from './components/Project.mjs';
-import ClaudeAgents from './components/ClaudeAgents.mjs';
+import Versioning from './components/Versioning.mjs';
+import Execution from './components/Execution.mjs';
 import Summary from './components/Summary.mjs';
 
 const e = React.createElement;
@@ -28,11 +30,7 @@ function useTerminalSize() {
 function Wizard({ version, resolve }) {
   const { columns, rows } = useTerminalSize();
   const engines = React.useMemo(() => detectAll(), []);
-  // The Claude-subagents step only exists when Claude is installed.
-  const STEPS = React.useMemo(
-    () => ['splash', 'review', 'gates', 'project', ...(engines?.claude?.installed ? ['claude'] : []), 'summary'],
-    [engines],
-  );
+  const STEPS = React.useMemo(() => wizardSteps(engines), [engines]);
   const [lang, setLang] = React.useState('en');
   const [answers, setAnswers] = React.useState(makeDefaultAnswers(process.cwd()));
   const [i, setI] = React.useState(0);
@@ -44,11 +42,11 @@ function Wizard({ version, resolve }) {
   else if (step === 'review') screen = e(ReviewPolicy, { answers, setAnswers, lang, onNext: next });
   else if (step === 'gates') screen = e(Gates, { answers, setAnswers, lang, onNext: next });
   else if (step === 'project') screen = e(Project, { answers, setAnswers, lang, onNext: next });
-  else if (step === 'claude') screen = e(ClaudeAgents, { answers, setAnswers, lang, onNext: next });
+  else if (step === 'versioning') screen = e(Versioning, { answers, setAnswers, lang, onNext: next });
+  else if (step === 'execution') screen = e(Execution, { answers, setAnswers, lang, onNext: next });
   else screen = e(Summary, { answers, lang, onNext: (ok) => resolve(ok ? answers : null) });
 
-  const centered = true; // every screen is vertically + horizontally centered
-  // Root fills the whole terminal (alternate screen); splash is centered, the rest top-aligned.
+  // Root fills the whole terminal (alternate screen) and centers each wizard step.
   return e(
     Box,
     {
@@ -57,8 +55,8 @@ function Wizard({ version, resolve }) {
       flexDirection: 'column',
       paddingX: 2,
       paddingY: 1,
-      justifyContent: centered ? 'center' : 'flex-start',
-      alignItems: centered ? 'center' : 'stretch',
+      justifyContent: 'center',
+      alignItems: 'center',
     },
     screen,
   );
@@ -67,7 +65,7 @@ function Wizard({ version, resolve }) {
 const ALT_ENTER = '[?1049h[?25l[2J[H'; // alt screen on, hide cursor, clear
 const ALT_EXIT = '[?25h[?1049l';                  // show cursor, alt screen off
 
-export function runWizard(pkgRoot, version) {
+export function runWizard(version) {
   return new Promise((resolve) => {
     const out = process.stdout;
     let restored = false;

@@ -4,6 +4,45 @@ Notable changes to the codeforge framework itself, newest first. This is the fra
 development log; it is **not** the seed shipped to installed projects (that lives at
 `src/docs/CHANGELOG.md`).
 
+## Unreleased — target 0.7.0
+
+- **Installer transactions and setup reporting are safer.** Both platform installers now reject
+  malformed managed `.gitignore` blocks before mutating the target. Switching already-versioned
+  adapters to ignored mode reports the exact non-destructive untrack command while leaving the Git
+  index unchanged. Bash preserves ancestor instruction paths containing literal newlines when it
+  generates Claude isolation JSON. The interactive CLI exits non-zero if its post-install config
+  application fails, and its reproducible command uses the portable current-directory target
+  instead of emitting an unquoted absolute path.
+- **Review-policy and installer portability follow-up.** Bash now JSON-escapes ancestor Claude
+  instruction paths and recognizes CRLF `.gitignore` markers. PowerShell reads only the first
+  `PROJECT.md` review-policy section and applies reviewer/council values independently, matching
+  Bash. `--ignore-generated` now ignores exact managed artifacts instead of entire engine
+  directories, so unrelated custom agents remain trackable. Fresh defaults select Codex + Claude
+  for cross-engine review without implicitly enabling OpenCode as a third reviewer.
+- **Reviewer runs now have an enforced cross-platform deadline.** The installed
+  `.codeforge/scripts/run-reviewer.mjs` launches only the configured engine, transports prompts
+  without shell interpolation, captures stdout/stderr atomically, terminates a stalled process
+  tree after 10 minutes, and reports distinct launch/timeout/failure/empty-output exits. This
+  replaces prose-only deadlines and the POSIX-only Codex stdin redirection.
+- **Managed paths fail closed on symlinks/reparse points.** Both installers and sync
+  implementations reject linked canonical, engine, and scaffold directories before mutating the
+  target, including links nested inside `.codeforge/`. Generated leaf files are still replaced
+  atomically from same-directory temporary files. Regression tests prove external targets remain
+  unchanged; PowerShell parity runs in Windows CI.
+- **BREAKING (execution policy): the parent now exclusively owns Git integration.**
+  `commit_policy=defer` is the only supported
+  implementation policy: subagents never stage or commit. Write-capable tasks run sequentially in
+  a shared checkout; parallel writes require isolated worktrees. Remove `per-task` from custom
+  briefs and run `.codeforge/sync.sh` (or `sync.ps1`) to regenerate native adapters. The setup wizard hides the native
+  subagent choice when neither Claude Code nor Codex is installed.
+- **Native subagent parity for Claude Code and Codex.** The execution wizard now records one
+  engine-neutral `inline|subagent-driven` strategy instead of a Claude-only model choice.
+  `.codeforge/agents/codeforge-implementer.md` is the canonical bounded-task contract; sync
+  generates both `.claude/agents/codeforge-implementer.md` and
+  `.codex/agents/codeforge-implementer.toml`, while Codex's `[agents]` concurrency is configured
+  under `.codex/config.toml`. Generated agents inherit the active model to avoid stale project
+  model ids. Native task delegation remains separate from cross-engine review/council policy.
+
 ## 0.6.0 — 2026-07-22
 
 - **BREAKING (installed layout): all framework machinery moved under a single `.codeforge/` dir.**
@@ -46,7 +85,7 @@ development log; it is **not** the seed shipped to installed projects (that live
   review policy into `shared/rules/models.md` and its gate profile into `shared/state.template.md` —
   both **MANAGED**, i.e. refreshed by name on every install by a bare `cp`. So
   `npx @jualopezmo/codeforge --upgrade` silently reset a team's chosen reviewer and profile to the
-  shipped defaults, with no `.pre-forge.bak` for either file; and because `--upgrade` skips the
+  shipped defaults, with no `.pre-codeforge.bak` for either file; and because `--upgrade` skips the
   wizard (`cli/lib/flags.mjs:13-18`), nothing reapplied them. The answers were not persisted
   anywhere else, so they could only be recovered by re-typing them. Reproduced end to end:
   `Profile: light` → `standard` across one upgrade. **Fix:** `PROJECT.md § Review policy` is now the
@@ -138,8 +177,8 @@ development log; it is **not** the seed shipped to installed projects (that live
 - **Retired `--with-hooks` (the Claude-only PreToolUse gate hook).** Superseded by the CI Verified
   tier; its local fast-feedback role is already covered by `finish-branch` running `check-gates`.
   Removed across the installers, wizard/CLI, and CI; `claude-gate-hook.{sh,ps1}` deleted and pruned
-  from targets on `--upgrade`. `--with-hooks` / `-WithHooks` is now a deprecated no-op (warns, still
-  installs) so existing scripts don't break. Rationale: two rounds of cross-engine plan review showed
+  from targets on `--upgrade`. `--with-hooks` / `-WithHooks` is removed outright and rejected as an
+  unknown argument; no compatibility alias is retained because the product has no users yet. Rationale: two rounds of cross-engine plan review showed
   a local git hook cannot be portable, mandatory enforcement (per-clone `core.hooksPath`, server-side
   merges skip it, silent bypasses). Docs reframed to an honest Advisory/Attested/Verified ladder.
 - **`check-gates` now validates gate IDENTITY, not just count.** A ship-gate checklist with the
@@ -379,14 +418,13 @@ anatomy) plus the first Phase-3 distribution work.
   dependency-free Node tooling under `tools/` (dev-only — never shipped into a target). A
   **structural + codeforge-bespoke skill linter** (`lint-skills.mjs`) enforces frontmatter,
   `name`==dir, description ≤1024 with a "Use when" trigger, CLAUDE.md index parity (both ways),
-  **model-id quarantine** (`models.md` is the single source), and `shared/` reference integrity;
+  **model-id quarantine** (`models.md` is the single source), and `.codeforge/` reference integrity;
   missing `## Verification`/>500 lines are warnings. **Routing/collision evals** (`run-evals.mjs`,
   stemmed TF-IDF over descriptions, engine-name boilerplate stripped) catch missing-vocabulary
   and near-collision trigger bugs — real catalog scores rank-1 91%, 0 collisions. The eval
   surfaced and fixed two defects: a stemmer double-consonant bug (`shipping`→`ship`) and a `prd`
   description missing "spec / what to build / who it's for" vocabulary. New `.github/workflows/ci.yml`
-  runs lint → evals → 20 unit tests → installer smoke on every push/PR. Basis: the multi-engine
-  Phase-2 research brief in `docs/research/2026-07-18-phase-2-improvements.md`.
+  runs lint → evals → 20 unit tests → installer smoke on every push/PR.
 
 ## 0.1.0 — 2026-07-18
 

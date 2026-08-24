@@ -1,6 +1,6 @@
 import { test, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, readFileSync, rmSync, rmdirSync } from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 import { spawnSync } from 'node:child_process';
@@ -40,6 +40,15 @@ function gitignoredArtifactDir() {
 // dirs are gitignored, but leaving hundreds of them is cruft). Only removes dirs we created.
 after(() => {
   for (const d of createdArtifactDirs) { try { rmSync(d, { recursive: true, force: true }); } catch {} }
+  for (const path of [
+    join(REPO, '.codeforge/workflow', 'e2e-run'),
+    join(REPO, '.codeforge/workflow'),
+    join(REPO, '.codeforge'),
+  ]) {
+    try { rmdirSync(path); } catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error;
+    }
+  }
 });
 function runRef(env) {
   const artifactDir = gitignoredArtifactDir();
@@ -112,11 +121,11 @@ test('success mode → exit 0, CLASSIFICATION: PASS', { skip: skipReason() }, ()
   assert.match(r.stdout, /CLASSIFICATION: PASS\s*$/);
 });
 test('tiny E2E_EXPECT_MS on a never-matching assertion fails fast as FAIL_BUG', { skip: skipReason() }, () => {
-  const t0 = Date.now();
   const r = runRef({ E2E_MODE: 'expect-miss', E2E_EXPECT_MS: '250', E2E_WATCHDOG_MS: '30000' });
   assert.notEqual(r.status, 0);
   assert.match(r.stdout, /CLASSIFICATION: FAIL_BUG\s*$/);
-  assert.ok(Date.now() - t0 < 15000, 'expect timeout, not watchdog, ended the run');
+  assert.match(r.stdout, /timeout.*250ms|250ms.*timeout/i, 'the assertion timeout ended the run');
+  assert.doesNotMatch(r.stdout, /watchdog: overall deadline exceeded/, 'the watchdog must not end the run');
 });
 test('in-journey assertion failure → FAIL_BUG + artifacts + primary error', { skip: skipReason() }, () => {
   const r = runRef({ E2E_MODE: 'assert-fail', E2E_PERSIST: 'client' });

@@ -1,5 +1,5 @@
 // cli/lib/apply.mjs
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'node:fs';
+import { readFileSync, writeFileSync, existsSync } from 'node:fs';
 import { join } from 'node:path';
 
 const START = '<!-- codeforge:review-policy:start -->';
@@ -107,49 +107,14 @@ export function applyProject(targetDir, answers) {
   writeFileSync(path, md);
 }
 
-// Claude-only: when subagent-driven execution is chosen, write a Claude Code agent
-// definition whose `model:` is the model dispatched implementation subagents run with.
-// No-op for inline mode (or non-Claude installs). Not shipped to other engines.
-// Always regenerates (overwrites) so an upgraded install can't keep a stale template.
-// NOTE: this runs only via the wizard; `sync`/`--upgrade` do NOT touch .claude/agents, so
-// /goal's capability-preflight (design §6.4) MUST verify this file contains `commit_policy`
-// and HALT if it doesn't (stale pre-Plan-B agent), telling the user to re-run codeforge
-// setup. Owned by Plan C; noted here so it isn't lost.
-export function applyClaudeAgents(targetDir, answers) {
-  const c = answers.claude;
-  if (!c?.subagents || !c.model?.model) return;
-  const dir = join(targetDir, '.claude', 'agents');
-  mkdirSync(dir, { recursive: true });
-  const file = `---
-name: codeforge-implementer
-description: Implements exactly one task from the active codeforge plan (TDD: red → green → refactor), runs the covering tests, and reports back. Honors the dispatch brief's commit_policy (per-task = commit + report sha; defer = stage only, no commit). Dispatch one per task when running subagent-driven.
-model: ${c.model.model}
----
-
-You implement ONE task from the active codeforge plan. Read the task, write the failing
-test first, make it pass with the minimal change, and run the covering tests. Then honor the
-**commit_policy** the dispatching driver gave you (see .codeforge/rules/execution.md):
-
-- commit_policy=per-task (the default): commit, then report status (DONE / BLOCKED), the
-  commit sha, and a one-line test summary.
-- commit_policy=defer (used by /goal): do NOT commit — stage this task's files only, then
-  report status (DONE / BLOCKED), the task id, and a one-line test summary. Do not compute a
-  digest; the orchestrator owns it and makes the single commit at ship.
-
-On BLOCKED: report the blocker; do not commit and do not stage a half-done task. Do not start
-other tasks. Follow the repo's TDD and ship-gate rules.
-`;
-  writeFileSync(join(dir, 'codeforge-implementer.md'), file);
-}
-
 // Record the execution mode in PROJECT.md's "## Execution" section so the workflow skills
 // (via .codeforge/rules/execution.md) can read it. Lives in PROJECT.md because it is
 // project-owned and survives `--upgrade` (unlike the by-name-refreshed .codeforge/rules).
 export function applyExecution(targetDir, answers) {
   const path = join(targetDir, 'PROJECT.md');
   if (!existsSync(path)) return;
-  const c = answers.claude || {};
-  const body = `Execution: ${c.subagents ? `subagent-driven (model: ${c.model?.model ?? '?'})` : 'inline'}`;
+  const mode = answers.execution?.mode === 'subagent-driven' ? 'subagent-driven' : 'inline';
+  const body = `Execution: ${mode}`;
   let md = readFileSync(path, 'utf8');
   md = md.includes('## Execution')
     ? replaceSection(md, '## Execution', body)
@@ -200,5 +165,4 @@ export function applyAll(targetDir, answers) {
   applyProfile(targetDir, answers);
   applyProject(targetDir, answers);
   applyExecution(targetDir, answers);
-  applyClaudeAgents(targetDir, answers);
 }

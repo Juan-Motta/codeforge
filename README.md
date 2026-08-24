@@ -9,8 +9,8 @@ skills, and guardrails. No per-engine fork to maintain, no echo chamber: the rev
 runs on a *different* engine than the driver.
 
 It's **skills + config first** — no runtime hooks by default, no daemon, nothing to keep
-running. The install writes plain markdown and config into your repo; a fresh clone works with
-zero dependency on codeforge.
+running. The install writes Markdown, config, and bounded helper scripts into your repo. Generated engine adapters
+can be committed for zero-step clones or ignored and rebuilt locally from `.codeforge/`.
 
 ```bash
 cd /path/to/your-project
@@ -30,7 +30,8 @@ npx @jualopezmo/codeforge
 
 The wizard (available in **English / Español**) detects which engines you have (you don't need
 all three), lets you pick your **default reviewers and council advisors**, a **gate profile**,
-and project options, then runs the installer. Prefer no UI? Pass any flag (or run in CI / a
+project options, and whether generated adapters belong in Git, then runs the installer. Prefer
+no UI? Pass any flag (or run in CI / a
 pipe) and it installs non-interactively — the wizard even prints the exact non-interactive
 command it would run.
 
@@ -111,56 +112,64 @@ flowchart LR
 
 ### One neutral source, generated per engine (no symlinks)
 
-You maintain **one** source of truth. codeforge keeps an **engine-neutral source** in `src/`
-(instructions, skills, rules, per-engine configs). The installer runs a generator (`sync.sh` /
-`sync.ps1`) that produces each engine's config and skills **by plain copy** into your project —
-no symlinks, so it behaves identically on macOS, Linux, and Windows.
+Each installed project carries **one local source of truth** in `.codeforge/`: instructions,
+agent contracts, skills, rules, scripts, per-engine configs, docs, templates, and the sync tools. The installer
+assembles it from the npm payload and generates each engine's discovery files **by plain copy**
+— no symlinks, so it behaves identically on macOS, Linux, and Windows.
 
 ```mermaid
 flowchart TD
-    subgraph SRC["Neutral source (lives in codeforge — edit here)"]
-        INS["CLAUDE.md"]
+    subgraph SRC["Canonical source installed in .codeforge/"]
+        INS["WORKFLOW.md"]
+        AG["agents/codeforge-implementer.md"]
         SK["skills/&lt;name&gt;/SKILL.md"]
-        RU["shared/rules/*.md"]
+        RU["rules/*.md · scripts/*"]
         CF["configs/claude · configs/codex · configs/opencode"]
     end
-    SRC -->|install.sh runs sync --out target| GEN["Generated into your project (committed with it)"]
-    GEN --> CLAUDE["Claude Code<br/>CLAUDE.md · .claude/settings.json · .claude/skills"]
-    GEN --> CODEX["Codex<br/>AGENTS.md · .codex/config.toml · .agents/skills"]
+    SRC -->|run .codeforge/sync| GEN["Generated engine adapters (tracked or ignored)"]
+    GEN --> CLAUDE["Claude Code<br/>CLAUDE.md · .claude/settings.json · skills · agents"]
+    GEN --> CODEX["Codex<br/>AGENTS.md · .codex/config.toml · .agents/skills · .codex/agents"]
     GEN --> OPEN["OpenCode<br/>AGENTS.md · opencode.json · reads .claude/.agents skills"]
 ```
 
-- **`CLAUDE.md`** is the canonical instruction set; sync copies it to **`AGENTS.md`** so Claude
-  Code reads one, Codex/OpenCode read the other — **same content, no drift**.
+- **`.codeforge/WORKFLOW.md`** is the canonical methodology. Root `CLAUDE.md` uses Claude's
+  native imports to load it alongside `PROJECT.md`; `AGENTS.md` gives Codex/OpenCode the same
+  two-file bootstrap without duplicating their contents.
 - **Skills** live once in `skills/` and are copied into the two paths that cover all three
   engines: `.claude/skills` (Claude Code, also read by OpenCode) and `.agents/skills` (Codex,
   also read by OpenCode).
+- **Implementation agents** live as an engine-neutral contract under `.codeforge/agents/`.
+  Sync renders the Claude Code Markdown and Codex TOML adapters without pinning a model, so
+  each inherits the active engine defaults.
 - **Configs** (`.claude/settings.json`, `.codex/config.toml`, `opencode.json`) are generated
-  from the source as a baseline; per-project Claude overrides go in the gitignored
+  from project-owned canonical inputs under `.codeforge/configs/`. The installer seeds missing
+  entries but preserves local edits and additions on reinstall/upgrade. Per-project Claude overrides go in the gitignored
   `.claude/settings.local.json`.
-- The generated artifacts are **committed with your project**, so a fresh clone works
-  immediately — but you never hand-edit them. To customize or upgrade, edit the codeforge
-  source and re-run the installer.
+- Generated engine adapters can be **committed** so a fresh clone works immediately (the
+  default), or **gitignored** and rebuilt after cloning. In either mode, customize `.codeforge/`
+  and run `.codeforge/sync.sh` (or `pwsh .codeforge/sync.ps1`).
 
 > **Why copies, not symlinks?** Symlinks are fragile on Windows and across zip/clone mirrors.
 > One source + a generator gives a single place to edit without ever fighting symlink support.
+> For safety, installation and sync fail before mutation when a codeforge-managed directory is a
+> symlink or Windows reparse point; generated leaf files are replaced atomically.
 
-### Thin install
+### Self-contained install
 
-Only the agent's **runtime** files land in your project: the generated engine artifacts plus a
-small managed baseline (`CLAUDE.md`, `shared/rules/`, `shared/scripts/`, docs scaffolding).
-The build machinery — the neutral source, the generators, the linter, and the evals — **stays
-in codeforge and never ships**. So your repo stays lean and has no dependency on codeforge to
-run.
+The complete operational harness lands under `.codeforge/`; only framework-development tools
+such as the wizard source, linter, evals, and installers stay in the npm package/repository.
+This makes the boundary obvious: edit `.codeforge/`, regenerate the engine adapters, and commit
+the canonical source plus either the adapters or the selected ignore policy. No global
+installation or codeforge checkout is needed after setup.
 
 ### Enforcement model — honest about what each signal is worth
 
 This is **discipline, not a magic hard gate.** codeforge is precise about how much each signal
-is worth (see [`ship-gates.md`](src/shared/rules/ship-gates.md)):
+is worth (see [`ship-gates.md`](src/codeforge/rules/ship-gates.md)):
 
 - **Advisory** — the skills *instruct* the agent to pass the gates before shipping.
-- **Attested** — `finish-branch` runs `shared/scripts/check-gates.sh` (`.ps1` on Windows), a
-  deterministic check that reads `.workflow/state.md` and **exits non-zero** listing any
+- **Attested** — `finish-branch` runs `.codeforge/scripts/check-gates.sh` (`.ps1` on Windows), a
+  deterministic check that reads `.codeforge/workflow/state.md` and **exits non-zero** listing any
   unchecked box. It validates the *record* (a checked box is a claim), it's **local**, and it
   only runs when invoked.
 - **Verified** — the only signal independent of the agent: a shipped **Verified-tier CI
@@ -201,51 +210,55 @@ its README, is what can bind for everyone.
 
 ### Models (cross-engine roles)
 
-The reviewer/advisor always runs on a **different engine than the driver** — model diversity is
-the whole point. The concrete model IDs, effort, and invocation for each engine live in **one
-file**, `src/shared/rules/models.md`, so a CLI or model bump is a single-file edit. `council`
-consults all three engines at once; `review`/`research` use the non-driver engine. The wizard
-writes your chosen defaults here.
+The reviewer always runs on a **different configured engine than the driver** — model diversity
+is the point, but the wizard's reviewer/advisor selection is an authoritative allowlist. A failed
+Claude review never silently enables OpenCode. The concrete model IDs, effort, bounded invocation,
+and retry rules live in `.codeforge/rules/models.md`. A cross-platform runner owns the real
+10-minute (600-second) timeout, terminates stalled reviewer processes, and captures stdout/stderr without
+shell-interpolating the prompt; `council` uses only configured advisors.
 
-### Execution mode (Claude Code)
+### Execution mode (Claude Code + Codex)
 
-During setup you can choose how Claude Code runs the build phase: **inline** (the main session
-does the work) or **subagent-driven** (a dedicated implementer subagent, with a model you pick).
-The choice is wired into `new-feature`/`fix-bug` via `shared/rules/execution.md`, recorded in
-`PROJECT.md`, and materialized as a generated `.claude/agents/codeforge-implementer.md`.
+During setup you can choose how the build phase runs: **inline** (the main session does the
+work) or **subagent-driven** (one fresh native implementer per bounded plan task). The choice
+is wired into `new-feature`/`fix-bug` via `.codeforge/rules/execution.md` and recorded in
+`PROJECT.md`. The canonical `.codeforge/agents/codeforge-implementer.md` contract generates
+`.claude/agents/codeforge-implementer.md` and `.codex/agents/codeforge-implementer.toml`;
+OpenCode follows the explicit inline fallback until a tested native adapter is added. The wizard
+only offers this choice when Claude Code or Codex is detected. Implementers run sequentially in a
+shared working tree, leave changes unstaged/uncommitted, and let the parent own validation, the git
+index, and the ship commit; parallel writes require isolated worktrees.
 
 ### Repo layout
 
-The payload lives in `src/`, keeping the repo root free of files that would collide when
-working ON codeforge. The installer reads `src/` but copies only the runtime subset into a
-target:
+The package payload lives in `src/`, keeping the repository root free of files that would
+collide while developing codeforge. Installation assembles that payload into one canonical
+`.codeforge/` tree in the target:
 
 ```
-codeforge/
-├── src/                          # ── SOURCE (stays in codeforge; only runtime is copied) ──
-│   ├── CLAUDE.md                 #    canonical instructions (copied to the target)
-│   ├── skills/<name>/SKILL.md    #    14 canonical skills → generated into .claude/ + .agents/
-│   ├── shared/rules/*.md         #    12 rules: severity, tdd, ship-gates, execution, memory, …
-│   ├── shared/scripts/*.{sh,ps1} #    agent-invoked helper: check-gates (local, Attested tier)
-│   ├── shared/state.template.md  #    workflow-state seed (copied to the target)
-│   ├── configs/                  #    gate-config source → generated engine configs (not copied)
-│   ├── sync.sh · sync.ps1        #    the generator (never copied into the target)
-│   └── docs/… · *.template.md    #    docs scaffold + seed-only templates
-│
-├── cli/                          # interactive setup wizard (Ink/React) ───┐
-├── bin/codeforge.mjs             # npx entry point (wraps the installer)   │ framework only
-├── tools/                        # dev-only quality machinery (linter+evals)│ (never copied
-├── install.sh · install.ps1      # installers (bash + PowerShell)          │  into a target)
-├── VERSION                       # single source of truth (→ .forge-version)│
-└── package.json · README.md · LICENSE                                      ┘
+my-project/
+├── .codeforge/                    # canonical installed source
+│   ├── WORKFLOW.md
+│   ├── agents/codeforge-implementer.md
+│   ├── skills/<name>/SKILL.md
+│   ├── rules/*.md
+│   ├── scripts/*.{sh,ps1}
+│   ├── configs/{claude,codex}/ · configs/opencode.json
+│   ├── docs/ · templates/
+│   ├── sync.sh · sync.ps1
+│   ├── state.template.md
+│   └── manifest · version
+├── CLAUDE.md · AGENTS.md          # minimal generated entrypoints
+├── .claude/ · .agents/ · .codex/  # generated engine adapters
+├── opencode.json                  # generated OpenCode adapter
+├── PROJECT.md · CONTINUITY.md     # project-owned
+└── docs/                          # active project knowledge
 ```
 
-After a thin install, a target holds only: the managed `CLAUDE.md`, `shared/rules/`,
-`shared/scripts/`, `shared/state.template.md`, `.forge-version`; the project-owned
-`PROJECT.md`, `CONTINUITY.md`, `docs/`; and the generated engine artifacts (`AGENTS.md`,
-`opencode.json`, `.claude/`, `.agents/`, `.codex/`). Only local state (`.workflow/`,
-`.claude/settings.local.json`) is gitignored. Upgrading a project installed by an older,
-non-thin version cleans up the leftover machinery automatically.
+The canonical source, root entrypoints, `PROJECT.md`, `CONTINUITY.md`, and `docs/` always remain
+trackable. Local state (`.codeforge/workflow/`, `.claude/settings.local.json`) is always ignored;
+the wizard lets each project commit or ignore the generated files inside `.claude/`, `.agents/`,
+`.codex/`, plus `opencode.json`. Unrelated custom engine files remain trackable.
 
 ---
 
@@ -260,20 +273,29 @@ target argument, the installer uses the current directory.
 cd /path/to/your-project
 npx @jualopezmo/codeforge              # interactive wizard (or non-interactive with any flag)
 npx @jualopezmo/codeforge --yes        # install with defaults, no wizard
+npx @jualopezmo/codeforge --yes --ignore-generated  # rebuild adapters locally; don't commit them
 npx @jualopezmo/codeforge --upgrade    # refresh framework files later
 npx @jualopezmo/codeforge --version    # print the installed codeforge version
 ```
 
-The Node wrapper just runs the platform installer bundled in the package (`bash` / `pwsh`); the
-content it installs is plain markdown + config. Each install stamps `.forge-version` into the
-target, and a later `--upgrade` from a different version prints a drift advisory.
+The Node wrapper runs the platform installer bundled in the package (`bash` / `pwsh`). The
+installed harness contains Markdown, configuration, and helper scripts. **Node.js 20+ is required
+for cross-engine review and council execution** through `.codeforge/scripts/run-reviewer.mjs`;
+direct installation and the rest of the workflow remain usable without Node, and the installer
+prints a clear warning. The selected external CLI must also be authenticated; for Claude, verify
+with `claude auth status` or sign in with `claude auth login`. The runner checks this before
+transmitting a complete prompt. Each install stamps `.codeforge/version` into the target, and a later
+`--upgrade` from a different version prints a drift advisory.
 
 ### Interactive setup (default on a TTY)
 
 Run with no arguments in a terminal and codeforge opens a full-screen setup console. Screens, in
 order: **splash + language picker (EN/ES)** → **review policy** (default reviewers + council
-advisors) → **gate profile** → **project options** → **execution mode** (only if Claude Code is
-detected) → **summary**. The summary prints the exact non-interactive command it would run.
+advisors) → **gate profile** → **project options** → **generated-adapter policy** → optional
+**execution mode** (shown when native Claude Code / Codex subagents are available) → **summary**.
+The summary prints the equivalent non-interactive command using `.` as the target; run it from
+the target directory shown immediately above it. This avoids shell-specific quoting failures for
+absolute paths containing spaces or metacharacters.
 
 Pass any flag, or run without a TTY (e.g. in CI or through a pipe), to skip the UI entirely.
 
@@ -295,22 +317,35 @@ pwsh ./install.ps1 C:\path\to\your-project -Upgrade         # refresh framework 
 
 ### What the installer does
 
-- **Copies the managed runtime baseline** (overwritten on upgrade): `CLAUDE.md`,
-  `shared/state.template.md`, the framework's own `shared/rules/` entries (refreshed **by
-  name**), and the docs scaffolding. **Your own rules** dropped into `shared/rules/` are left
-  untouched, so they survive upgrades.
+- **Builds the canonical `.codeforge/` source** with instructions, agent contracts, skills, rules, scripts,
+  configs, documentation, templates, sync tools, state template, manifest, and version.
+  Framework-managed content is refreshed on upgrade; custom skills and rules with distinct names
+  in `.codeforge/skills/` and `.codeforge/rules/` are preserved. `.codeforge/configs/` becomes
+  project-owned after seeding, so engine configuration edits and additions survive upgrades.
 - **Creates project-owned files only if missing** (never clobbered on re-run): `PROJECT.md`,
   `CONTINUITY.md`, a seed `docs/CHANGELOG.md`.
-- **Generates the engine artifacts** by running `sync --out <target>` (no symlinks):
-  `AGENTS.md`, `opencode.json`, and `.claude/`, `.agents/`, `.codex/` — committed with the
-  project so clones work as-is.
-- **Backs up an existing `CLAUDE.md`** to `CLAUDE.md.pre-forge.bak` (move its project-specifics
-  into `PROJECT.md`), and **merges** `.gitignore` rather than replacing it.
-- **Self-heals an older, non-thin install** on upgrade: leftover machinery is removed; a
-  pre-existing `configs/` or neutral `skills/` is backed up to `*.pre-forge.bak`, never silently
-  deleted.
+- **Adopts existing agent context:** a non-codeforge `CLAUDE.md` and/or `AGENTS.md` is copied
+  verbatim into an `Imported agent context` section in `PROJECT.md`, with originals retained
+  under `.codeforge/backups/`. Re-installs do not duplicate the imported content.
+- **Generates the engine artifacts** from `.codeforge/` (no symlinks):
+  minimal `CLAUDE.md`/`AGENTS.md` entrypoints, `opencode.json`, and `.claude/`, `.agents/`,
+  `.codex/`, including native Claude Code and Codex implementers. Root
+  `CLAUDE.md`/`AGENTS.md` remain trackable as stable project entrypoints.
+- **Asks whether generated adapters belong in Git.** `--track-generated` keeps them versioned
+  (default); `--ignore-generated` ignores only the managed settings, skill mirrors, native
+  implementer definitions, and `opencode.json`. Unrelated custom agents/configuration under the
+  engine directories remain trackable. The choice is stored in `.codeforge/manifest`, so a later
+  bare install or upgrade preserves it. If a project switches to ignored mode after those files
+  were already added to Git, the installer leaves the index untouched and prints an explicit
+  `git rm --cached` command that removes only the generated adapters from version control without
+  deleting their local copies.
+- **Creates and merges `.gitignore`** even when Git has not been initialized. User rules outside
+  the delimited codeforge block are preserved; `.codeforge/`, project context, and `docs/` are
+  never ignored by codeforge. An existing malformed managed block is rejected in preflight before
+  any project file is changed.
 - **Runs a post-install validation** that exits non-zero if any skill-discovery path, `AGENTS.md`,
-  or engine config is missing, and warns if a config lacks the push/PR gate.
+  or engine config is missing, warns if a config lacks the push/PR gate, and reports when
+  Node.js 20+ is unavailable for cross-engine review/council.
 - **Checks for git.** The workflow and gates operate on git; if the target isn't a repo the
   installer **warns** (it never touches your VCS on its own). Pass `--git-init` to have it run
   `git init` + a baseline commit.
@@ -332,7 +367,7 @@ Then fill in `PROJECT.md` and open the project in any of the three engines.
 
 Two rule layers apply, both always-on:
 
-- **Global baseline** (`CLAUDE.md` golden rules + `shared/rules/*`) — the framework discipline,
+- **Global baseline** (`.codeforge/WORKFLOW.md` golden rules + `.codeforge/rules/*`) — the framework discipline,
   applies without exception.
 - **Project rules** (`PROJECT.md`) — this project's **Persona**, **Project info**,
   **Variables**, and **Special rules**. Editable per project.
@@ -340,7 +375,7 @@ Two rule layers apply, both always-on:
 Project rules **add and refine**; they never override the safety/ship-gate baseline (on
 conflict, the baseline wins). All three engines load `PROJECT.md` (OpenCode also force-loads it
 via `opencode.json` `instructions`). The installer seeds `PROJECT.md` in the target — fill the
-four sections and commit. See [`project-rules.md`](src/shared/rules/project-rules.md).
+four sections and commit. See [`project-rules.md`](src/codeforge/rules/project-rules.md).
 
 ## Extending
 
@@ -351,19 +386,20 @@ automatically.
 
 ## Status
 
-**v0.5.0 — interactive setup + journey-based E2E.** Published to npm as
-[`@jualopezmo/codeforge`](https://www.npmjs.com/package/@jualopezmo/codeforge); verified
-end-to-end on all three engines — **Claude Code, Codex, and OpenCode** — driving a real project.
+**v0.7.0 — unreleased development iteration.** The latest published package remains
+[`@jualopezmo/codeforge` v0.6.0](https://www.npmjs.com/package/@jualopezmo/codeforge). The
+changes described below are present in this repository and are not available from npm until the
+0.7.0 release is published.
 
-This release adds a **full-screen interactive setup wizard** (Ink/React) with English/Español,
-configurable **reviewers + council advisors**, a Claude-only **execution mode** (inline vs
-subagent-driven), and the **`verify-e2e`** skill whose evidence report is bound to the ship-gate.
+This iteration adds a **full-screen interactive setup wizard** (Ink/React) with English/Español,
+configurable **reviewers + council advisors**, a Claude Code + Codex **execution mode** (inline
+vs subagent-driven), and the **`verify-e2e`** skill whose evidence report is bound to the ship-gate.
 It builds on the earlier CI-enforced skill linter + routing evals, anti-rationalization anatomy
 across every skill, the deterministic `check-gates` validator, and the `adr` / `simplify`
 skills. Enforcement is a shipped **Verified-tier CI template** (`docs/ci-templates/`) made a
 required check via branch protection; local discipline is advisory + `finish-branch`'s
 `check-gates`; there are no per-engine runtime hooks.
 
-**14 skills, 12 rules.** Neutral-source + generator model (no symlinks), **thin install** (only
-runtime lands in the target; machinery stays in codeforge), cross-platform (`install.sh` +
-`install.ps1`), CI-validated on Ubuntu **and** Windows.
+**15 skills, 14 rules.** Canonical `.codeforge/` source + generated engine adapters (no
+symlinks), cross-platform (`install.sh` + `install.ps1`), CI-validated on Ubuntu **and**
+Windows.

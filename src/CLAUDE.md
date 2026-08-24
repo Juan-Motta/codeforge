@@ -1,11 +1,9 @@
 # Workflow discipline for Claude Code, Codex + OpenCode
 
-> This file is the always-on instruction set. `AGENTS.md` is a generated copy of it, so
-> **Claude Code** (reads `CLAUDE.md`), **Codex** (reads `AGENTS.md`), and **OpenCode**
-> (reads `AGENTS.md`, falls back to `CLAUDE.md`) all load the exact same discipline — no
-> symlinks, no drift. Both are generated from the codeforge source; to change the discipline,
-> edit the source there and re-run the codeforge installer against this project (don't
-> hand-edit `CLAUDE.md`/`AGENTS.md` here — a re-install overwrites them).
+> Installed as the engine-neutral `.codeforge/WORKFLOW.md`. The generated root
+> `CLAUDE.md` imports this file and `PROJECT.md`; `AGENTS.md` is a minimal bootstrap that
+> requires Codex/OpenCode to read both. Edit the canonical files, then run
+> `.codeforge/sync.sh` (or the PowerShell equivalent). Don't hand-edit the entrypoints.
 
 ## What this is
 
@@ -36,7 +34,7 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 - **Capture learnings.** Save reusable solutions/decisions to the repo `docs/` (portable
   memory) — see `.codeforge/rules/memory.md` and `.codeforge/rules/docs-layout.md`.
 
-## Workflow skills (canonical in `skills/`, discovered by all three harnesses)
+## Workflow skills (canonical in `.codeforge/skills/`, discovered by all three harnesses)
 
 - `prd` — write a product requirements doc (problem/users/goals) before designing
 - `research` — pre-design research: check current docs + prior art, write a sourced brief
@@ -60,7 +58,7 @@ state and is bypassable. It runs identically under Claude Code, Codex, and OpenC
 - `severity.md` — P0–P3 rubric for review findings
 - `ship-gates.md` — what must be true before commit/push/PR, and how each harness gates it
 - `tdd.md` — red-green-refactor discipline
-- `execution.md` — inline vs subagent-driven implementation (subagents are Claude-only)
+- `execution.md` — inline vs native subagent-driven implementation on Claude Code and Codex
 - `research.md` — when to research and what a good brief contains
 - `approach-comparison.md` — fixed-axes table for choosing an approach
 - `memory.md` — what to save and where (repo-first, portable across engines)

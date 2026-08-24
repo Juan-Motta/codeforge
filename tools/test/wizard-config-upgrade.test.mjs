@@ -3,15 +3,15 @@
 // THE BUG THIS PINS: the wizard wrote its answers straight into two MANAGED files —
 // `.codeforge/rules/models.md` (review policy block) and `.codeforge/state.template.md`
 // (`**Profile:**`) — which install.sh/ps1 overwrite unconditionally (a bare `cp` over
-// `shared/rules/*.md` and over `state.template.md`). So `npx @jualopezmo/codeforge --upgrade`
+// `.codeforge/rules/*.md` and over `.codeforge/state.template.md`). So an upgrade
 // silently reset a team's chosen reviewer and gate profile back to the shipped defaults, with no
-// `.pre-forge.bak` for either file. Worse, `--upgrade` skips the wizard, so nothing reapplied
+// `.pre-codeforge.bak` for either file. Worse, `--upgrade` skips the wizard, so nothing reapplied
 // them, and the wizard's answers were not persisted anywhere else.
 //
 // THE FIX: PROJECT.md (project-owned, never clobbered) is the source of truth, exactly as
 // `applyExecution` already does for `## Execution` — its comment states the reason: "Lives in
 // PROJECT.md because it is project-owned and survives `--upgrade` (unlike the by-name-refreshed
-// shared/rules)". The installers re-render the two managed files FROM PROJECT.md on every run.
+// .codeforge/rules)". The installers re-render the two managed files FROM PROJECT.md on every run.
 //
 // Both installers are covered: the sh↔ps1 parity rule means a fix in one is a bug in the other.
 
@@ -76,11 +76,16 @@ function assertPolicyPreserved(target, label) {
   assert.ok(!/gpt-5\.6-sol/.test(block[0]), `${label}: managed block reverted to the shipped default reviewer`);
 }
 
+function managedPolicy(target) {
+  const models = readFileSync(join(target, '.codeforge', 'rules', 'models.md'), 'utf8');
+  return models.match(/<!-- codeforge:review-policy:start -->[\s\S]*?<!-- codeforge:review-policy:end -->/)?.[0] || '';
+}
+
 test('PROJECT.md template ships a Review policy section for the wizard to own', () => {
   const md = readFileSync(join(REPO, 'src', 'PROJECT.template.md'), 'utf8');
   assert.match(md, /^## Review policy$/m);
   // The section must explain that it is the source of truth, or a future maintainer will
-  // "helpfully" move it back into shared/rules and reintroduce the bug.
+  // "helpfully" move it elsewhere and reintroduce the bug.
   assert.match(md, /Managed by the codeforge setup wizard/);
 });
 
@@ -206,6 +211,50 @@ test('install.ps1 --upgrade re-renders the managed files from PROJECT.md (parity
     assertPolicyPreserved(target, 'install.ps1 -Upgrade');
   } finally {
     rmSync(target, { recursive: true, force: true });
+  }
+});
+
+test('both installers apply a reviewer even when the council line is absent', { skip: !hasPwsh ? 'pwsh not installed' : false }, () => {
+  const sh = freshTarget('cf-wiz-partial-sh-');
+  const ps = freshTarget('cf-wiz-partial-ps-');
+  const project = '# Project\n\n## Review policy\n\nDefault reviewer(s): Claude (`opus`, high)\nGate profile: light\n';
+  try {
+    writeFileSync(join(sh, 'PROJECT.md'), project);
+    writeFileSync(join(ps, 'PROJECT.md'), project);
+    install(sh);
+    installPs1(ps);
+    assert.match(managedPolicy(sh), /Default reviewer\(s\): Claude/);
+    assert.equal(managedPolicy(ps).replace(/\r\n/g, '\n'), managedPolicy(sh).replace(/\r\n/g, '\n'));
+  } finally {
+    rmSync(sh, { recursive: true, force: true });
+    rmSync(ps, { recursive: true, force: true });
+  }
+});
+
+test('both installers use only the first duplicated Review policy section', { skip: !hasPwsh ? 'pwsh not installed' : false }, () => {
+  const sh = freshTarget('cf-wiz-duplicate-sh-');
+  const ps = freshTarget('cf-wiz-duplicate-ps-');
+  const project = [
+    '# Project', '',
+    '## Review policy', '',
+    'Default reviewer(s): Claude (`opus`, high)',
+    '## Other', '',
+    '## Review policy', '',
+    'Council advisors: OpenCode (`opencode-go/glm-5.2`, default)',
+    'Gate profile: light', '',
+  ].join('\n');
+  try {
+    writeFileSync(join(sh, 'PROJECT.md'), project);
+    writeFileSync(join(ps, 'PROJECT.md'), project);
+    install(sh);
+    installPs1(ps);
+    assert.equal(managedPolicy(ps).replace(/\r\n/g, '\n'), managedPolicy(sh).replace(/\r\n/g, '\n'));
+    assert.doesNotMatch(managedPolicy(ps), /^Council advisors: OpenCode/m);
+    const psState = readFileSync(join(ps, '.codeforge', 'state.template.md'), 'utf8');
+    assert.match(psState, /\*\*Profile:\*\*\s*standard/);
+  } finally {
+    rmSync(sh, { recursive: true, force: true });
+    rmSync(ps, { recursive: true, force: true });
   }
 });
 

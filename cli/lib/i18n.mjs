@@ -36,6 +36,12 @@ const en = {
     rulesLabel: 'Special rules (optional): ',
     rulesPlaceholder: 'e.g. never touch prod',
   },
+  versioning: {
+    title: '⚒  Generated adapters',
+    subtitle: 'Choose whether Git stores the engine-specific copies. Canonical files and project context are always kept.',
+    track: 'Keep in Git (recommended) · clones work immediately',
+    ignore: 'Ignore · regenerate locally from .codeforge',
+  },
   summary: {
     title: '⚒  Review & confirm',
     target: 'Target: ',
@@ -43,15 +49,14 @@ const en = {
     reviewers: (l) => `Default reviewers: ${l || '(none)'}`,
     council: (l) => `Council advisors: ${l || '(none)'}`,
     execution: (m) => `Execution: ${m}`,
-    repro: 'Equivalent non-interactive install (defaults — review policy is wizard-only for now):',
+    generated: (ignored) => `Generated adapters: ${ignored ? 'ignored' : 'tracked'}`,
+    repro: 'Equivalent non-interactive install (run from the target directory; review policy is wizard-only for now):',
   },
-  claude: {
-    title: '⚒  Claude subagents (advanced)',
-    subtitle: 'Claude-only: how the driver runs a multi-task plan. Subagent-driven dispatches a fresh subagent per task (isolated context) at a model you choose.',
+  execution: {
+    title: '⚒  Implementation strategy',
+    subtitle: 'Claude Code and Codex can delegate each bounded plan task to a fresh native implementer. The active engine model is inherited.',
     inline: 'Inline — the driver does each task in its own turn (default)',
     subagent: 'Subagent-driven — dispatch a fresh subagent per task',
-    modelTitle: '⚒  Subagent model',
-    modelSubtitle: 'Model each dispatched implementation subagent runs with.',
   },
   ui: { move: 'move', select: 'select', enter: 'Enter', confirm: 'confirm', install: 'install', cancel: 'cancel', begin: 'begin', space: 'space', toggle: 'toggle' },
 };
@@ -92,6 +97,12 @@ const es = {
     rulesLabel: 'Reglas especiales (opcional): ',
     rulesPlaceholder: 'ej. nunca tocar prod',
   },
+  versioning: {
+    title: '⚒  Adaptadores generados',
+    subtitle: 'Elige si Git guarda las copias para cada engine. Los archivos canónicos y el contexto siempre se conservan.',
+    track: 'Mantener en Git (recomendado) · los clones funcionan de inmediato',
+    ignore: 'Ignorar · regenerar localmente desde .codeforge',
+  },
   summary: {
     title: '⚒  Revisar y confirmar',
     target: 'Destino: ',
@@ -99,15 +110,14 @@ const es = {
     reviewers: (l) => `Reviewers por defecto: ${l || '(ninguno)'}`,
     council: (l) => `Council advisors: ${l || '(ninguno)'}`,
     execution: (m) => `Ejecución: ${m}`,
-    repro: 'Instalación no-interactiva equivalente (defaults — la política de review es solo del wizard por ahora):',
+    generated: (ignored) => `Adaptadores generados: ${ignored ? 'ignorados' : 'versionados'}`,
+    repro: 'Instalación no-interactiva equivalente (ejecutar desde el directorio destino; la política de review es solo del wizard por ahora):',
   },
-  claude: {
-    title: '⚒  Subagentes de Claude (avanzado)',
-    subtitle: 'Solo Claude: cómo el driver ejecuta un plan multi-task. Subagent-driven despacha un subagente fresco por task (contexto aislado) con el modelo que elijas.',
+  execution: {
+    title: '⚒  Estrategia de implementación',
+    subtitle: 'Claude Code y Codex pueden delegar cada task acotada del plan a un implementador nativo nuevo. Se hereda el modelo activo del engine.',
     inline: 'Inline — el driver hace cada task en su propio turno (por defecto)',
     subagent: 'Subagent-driven — despacha un subagente fresco por task',
-    modelTitle: '⚒  Modelo de subagente',
-    modelSubtitle: 'Modelo con el que corre cada subagente de implementación despachado.',
   },
   ui: { move: 'mover', select: 'elegir', enter: 'Enter', confirm: 'confirmar', install: 'instalar', cancel: 'cancelar', begin: 'empezar', space: 'espacio', toggle: 'marcar' },
 };

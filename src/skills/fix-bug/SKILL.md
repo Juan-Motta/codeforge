@@ -34,7 +34,7 @@ the fix approach with the `review` skill (a different engine) before implementin
 
 Make the smallest change that turns the test green. Refactor only if it clarifies. Fix
 the real cause, not the symptom. Execute per `.codeforge/rules/execution.md` (inline, or
-subagent-driven on Claude Code).
+subagent-driven through the native Claude Code / Codex implementer adapter).
 
 ## 5. Code review (cross-engine)
 

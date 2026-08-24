@@ -21,8 +21,8 @@ export default function Summary({ answers, onNext, lang }) {
       e(Text, { color: theme.text }, s.profile(answers.profile)),
       e(Text, { color: theme.text }, s.reviewers((answers.reviewers || []).join(', '))),
       e(Text, { color: theme.text }, s.council((answers.council || []).join(', '))),
-      e(Text, { color: theme.text }, s.execution(
-        answers.claude?.subagents ? `subagent-driven (${answers.claude.model?.model})` : 'inline')),
+      e(Text, { color: theme.text }, s.execution(answers.execution?.mode || 'inline')),
+      e(Text, { color: theme.text }, s.generated(answers.ignoreGenerated)),
       e(Box, { marginTop: 1, flexDirection: 'column' },
         e(Text, { color: theme.molten }, s.repro),
         e(Text, { wrap: 'wrap', color: theme.steel }, cmd))));

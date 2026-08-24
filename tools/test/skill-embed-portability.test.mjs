@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, readFileSync, rmSync, rmdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
@@ -21,6 +21,18 @@ function extractFenced(skillText) {
   const region = skillText.slice(s + '<!-- e2e-ui-ref:start -->'.length, e);
   // region is `<eol>```js<code>```<eol>` — strip the fence lines (CRLF-safe) to recover the code.
   return region.replace(/^\s*```js\r?\n/, '').replace(/\r?\n```\s*$/, '');
+}
+
+function removeEmptyArtifactParents() {
+  for (const path of [
+    join(REPO, '.codeforge/workflow', 'e2e-run'),
+    join(REPO, '.codeforge/workflow'),
+    join(REPO, '.codeforge'),
+  ]) {
+    try { rmdirSync(path); } catch (error) {
+      if (!['ENOENT', 'ENOTEMPTY'].includes(error.code)) throw error;
+    }
+  }
 }
 
 test('the embedded harness, extracted from an INSTALLED skill, runs with no tools/ dependency', { skip: skipReason() }, () => {
@@ -44,10 +56,11 @@ test('the embedded harness, extracted from an INSTALLED skill, runs with no tool
       encoding: 'utf8', cwd: REPO, timeout: 60000,
       env: { ...process.env, E2E_APP_ROOT: '.', E2E_APP_URL: FIXTURE, E2E_ARTIFACT_DIR: scratch, E2E_MODE: 'success' },
     });
-    assert.equal(res.status, 0, res.stderr);
+    assert.equal(res.status, 0, `[stdout]\n${res.stdout}\n[stderr]\n${res.stderr}`);
     assert.match(res.stdout, /CLASSIFICATION: PASS\s*$/);
   } finally {
     rmSync(target, { recursive: true, force: true });
     rmSync(scratch, { recursive: true, force: true });
+    removeEmptyArtifactParents();
   }
 });

@@ -12,8 +12,8 @@
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 import { readFileSync } from 'node:fs';
-import { hasInstallIntent, installerFlags } from '../cli/lib/flags.mjs';
-import { runInstaller } from '../cli/lib/run-installer.mjs';
+import { installerFlags } from '../cli/lib/flags.mjs';
+import { finalizeInstallerRun, runInstaller } from '../cli/lib/run-installer.mjs';
 
 const pkgRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = process.argv.slice(2);
@@ -34,21 +34,26 @@ if (args.includes('--help') || args.includes('-h')) {
   console.log(`codeforge ${version()} — install the cross-engine workflow discipline into a project.
 
   npx @jualopezmo/codeforge [target-dir] [--upgrade] [--git-init] [--no-isolate]
+                              [--ignore-generated | --track-generated]
 
   target-dir    where to install (default: current directory)
   --upgrade     refresh framework files in an existing install
   --git-init    if the target is not a git repo, initialize one + baseline commit
   --no-isolate  keep inheriting ancestor CLAUDE.md (default: auto-isolate via claudeMdExcludes)
+  --ignore-generated  gitignore only the engine artifacts regenerated from .codeforge
+  --track-generated   keep generated adapters in Git (default; clones work immediately)
   --version     print the codeforge version`);
   process.exit(0);
 }
 
-const interactive = process.stdin.isTTY && process.stdout.isTTY && !hasInstallIntent(args);
+// Only a truly argument-free TTY invocation opens the wizard. Any option, including an unknown
+// one, is delegated to the platform installer so removed APIs fail with its usage error.
+const interactive = process.stdin.isTTY && process.stdout.isTTY && args.length === 0;
 
 if (interactive) {
   const { runWizard } = await import('../cli/index.mjs');
   const { applyAll } = await import('../cli/lib/apply.mjs');
-  const answers = await runWizard(pkgRoot, version());
+  const answers = await runWizard(version());
   if (!answers) { console.log('codeforge: setup cancelled.'); process.exit(0); }
   const r = runInstaller(pkgRoot, installerFlags(answers));
   if (r.error) {
@@ -56,14 +61,11 @@ if (interactive) {
     console.error(`codeforge: could not launch ${r.cmd}: ${r.error.message}. ${hint}`.trim());
     process.exit(1);
   }
-  if (r.status === 0) {
-    try {
-      applyAll(answers.target, answers);
-    } catch (err) {
-      console.error(`codeforge: installed, but applying config failed: ${err.message}`);
-    }
+  const final = finalizeInstallerRun(r, () => applyAll(answers.target, answers));
+  if (final.applyError) {
+    console.error(`codeforge: installed, but applying config failed: ${final.applyError.message}`);
   }
-  process.exit(r.status);
+  process.exit(final.status);
 } else {
   // Non-interactive (flags/target/CI/pipe): delegate straight to the installer. --yes and
   // --non-interactive are bin-level "skip the wizard" signals only — install.sh doesn't

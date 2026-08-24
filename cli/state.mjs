@@ -5,14 +5,19 @@ export function makeDefaultAnswers(cwd) {
     target: cwd,
     // Per-engine model + which engines fill each role. Reviewers answer a bare "review";
     // council advisors run in a /council. Both reference `models`.
-    models: { codex: { model: 'gpt-5.6-sol', effort: 'xhigh' } },
-    reviewers: ['codex'],
-    council: ['codex'],
+    models: {
+      codex: { model: 'gpt-5.6-sol', effort: 'xhigh' },
+      claude: { model: 'opus', effort: 'high' },
+    },
+    reviewers: ['codex', 'claude'],
+    council: ['codex', 'claude'],
     profile: 'standard',
     gitInit: false,
     noIsolate: false,
-    // Claude-only: execution mode + the model dispatched subagents run with.
-    claude: { subagents: false, model: null },
+    // Generated engine adapters may be committed for zero-step clones or ignored and rebuilt.
+    ignoreGenerated: false,
+    // Project-wide strategy. Native Claude/Codex adapters inherit their active model defaults.
+    execution: { mode: 'inline' },
     project: { persona: '', info: `Project: ${basename(cwd)}`, rules: '' },
   };
 }

@@ -26,13 +26,11 @@ const MODEL_ID_RE =
 //
 // Paths are written as they appear IN THE INSTALLED TARGET (`.codeforge/rules/x.md`), while the
 // payload keeps them under `src/codeforge/` — the installer adds the dot when it copies. The lookup
-// below strips the leading dot for that reason. Also matches the retired `shared/...` spelling so a
-// stale reference is reported as broken instead of being silently ignored by the regex.
+// below strips the leading dot for that reason.
 // NOTE: no leading `\b` — a word boundary cannot exist between a space and the `.` of
 // `.codeforge`, so `\b` made this regex match NOTHING and silently disabled the whole
 // reference-integrity check. Use an explicit lookbehind instead, which still prevents
-// `myshared/x.md` from matching the bare `shared/` spelling.
-const SHARED_REF_RE = /(?<![\w/-])((?:\.codeforge|shared)\/[a-z0-9/_-]+\.md)\b/gi;
+const CODEFORGE_REF_RE = /(?<![\w/-])(\.codeforge\/[a-z0-9/_-]+\.md)\b/gi;
 
 /** Parse the leading `--- ... ---` YAML-ish frontmatter. Returns {name, description} or null. */
 function parseFrontmatter(text) {
@@ -133,16 +131,11 @@ export function lintSkills({ skillsDir, claudeMd, srcDir }) {
       err(r, `hard-codes a model id "${idHit[0]}" — reference .codeforge/rules/models.md instead`);
 
     // --- Reference integrity (hard) ---
-    for (const m of text.matchAll(SHARED_REF_RE)) {
+    for (const m of text.matchAll(CODEFORGE_REF_RE)) {
       const rel = m[1];
-      if (rel.startsWith('shared/')) {
-        err(r, `stale reference: ${rel} — machinery now lives at .codeforge/${rel.slice('shared/'.length)}`);
-        continue;
-      }
       // `.codeforge/workflow/**` is RUNTIME state: a workflow creates it from the template at
       // start, and it is gitignored. It is legitimately absent from the payload, so requiring it to
-      // exist here would force every skill that mentions the state file to fail. (Before the
-      // consolidation this path was `.workflow/**` and simply did not match the old `shared/` regex.)
+      // exist here would force every skill that mentions the state file to fail.
       if (rel.startsWith('.codeforge/workflow/')) continue;
       // `.codeforge/x` in the target == `src/codeforge/x` in the payload.
       if (!existsSync(join(srcDir, rel.replace(/^\./, ''))))

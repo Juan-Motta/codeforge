@@ -102,14 +102,14 @@ test('engine names (Claude/Codex/OpenCode) are NOT flagged as model ids', () => 
   rmSync(s.root, { recursive: true, force: true });
 });
 
-test('broken shared/ reference is an error', () => {
+test('broken .codeforge/ reference is an error', () => {
   const s = scaffold({ good: GOOD + '\nSee .codeforge/rules/does-not-exist.md for more.\n' });
   const res = run(s);
   assert.ok(errorsFor(res, 'good').some((e) => /broken reference/.test(e)));
   rmSync(s.root, { recursive: true, force: true });
 });
 
-test('valid shared/ reference passes', () => {
+test('valid .codeforge/ reference passes', () => {
   const s = scaffold({ good: GOOD + '\nSee .codeforge/rules/models.md for ids.\n' });
   const res = run(s);
   assert.ok(!errorsFor(res, 'good').some((e) => /broken reference/.test(e)));

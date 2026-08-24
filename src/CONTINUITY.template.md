@@ -1,6 +1,6 @@
 # Continuity — session handoff
 
-> The first thing to read on a new session (auto-loaded via `CLAUDE.md` / `AGENTS.md`).
+> The first thing to read on a new session (required by `.codeforge/WORKFLOW.md`).
 > Keep it current; refresh it with the `checkpoint` skill before closing a session.
 > Roles: this file = cross-session "where am I / what's next"; `.codeforge/workflow/state.md` = the
 > active workflow's checklist. Non-overlapping — this points to state.md, doesn't copy it.

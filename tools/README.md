@@ -1,7 +1,7 @@
 # tools/ — framework dev tooling
 
-Dev-only quality machinery for codeforge itself. **Never shipped into a target project** —
-the payload stays skills + config. Node built-ins only, no dependencies.
+Dev-only quality machinery for codeforge itself. **Never shipped into a target project**; the
+published payload contains only the CLI, installers, and canonical `src/` harness.
 
 ## Skill linter (`lint-skills.mjs`)
 
@@ -19,15 +19,15 @@ npm run lint:skills
 - `name` matches the directory; no duplicate names.
 - `description` ≤ 1024 chars and carries a "Use when/for/to…" trigger clause (what + when).
 - **Index parity** — every skill is listed in `src/CLAUDE.md`'s skill index and vice versa.
-  (`AGENTS.md` is generated from `CLAUDE.md`, so one drift poisons all three engines.)
+  (This source ships as `.codeforge/WORKFLOW.md`; the root entrypoints load it.)
 - **Model-ID quarantine** — a skill must not hard-code a model id (`gpt-…`, `glm-…`,
   `kimi-k…`, `opencode-go/…`, `opus`/`sonnet`/`haiku`). `.codeforge/rules/models.md` is the single
   source. Engine *names* (Claude / Codex / OpenCode) are fine.
-- **Reference integrity** — every `shared/…​.md` path a skill mentions exists under `src/`.
+- **Reference integrity** — every `.codeforge/…​.md` path a skill mentions exists under `src/codeforge/`.
+- Every skill has a `## Verification` exit-criteria section.
 
 **Warnings (do not fail the build):**
 
-- Missing `## Verification` section (tracked by the Phase-2 anatomy retrofit).
 - `SKILL.md` over 500 lines (progressive-disclosure budget).
 
 ## Routing evals (`run-evals.mjs`)
@@ -52,8 +52,8 @@ realistic prompt can't rank, the description is missing its vocabulary.
 ## Tests
 
 ```bash
-node --test           # auto-discovers tools/test/*.test.mjs (works on Node 18+)
-npm run test:tools     # skill-lint + routing unit tests
+node --test           # auto-discovers tools/test/*.test.mjs (Node 20+)
+npm run test:tools     # complete Node test suite
 npm run check          # lint + evals + tests (what CI runs)
 ```
 
